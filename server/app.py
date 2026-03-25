@@ -7,6 +7,7 @@ import pathlib
 from fastapi import FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.staticfiles import StaticFiles
 
 from dsn_extractor.extractors import extract
 from dsn_extractor.parser import parse
@@ -73,3 +74,6 @@ async def api_extract(file: UploadFile) -> JSONResponse:
         return _error(500, f"Extraction failed: {exc}", parsed.warnings)
 
     return JSONResponse(result.model_dump(mode="json"))
+
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

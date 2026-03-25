@@ -152,6 +152,48 @@ class TestInfrastructure:
         assert "text/html" in r.headers["content-type"]
 
 
+# ── Frontend wiring (Slice 7) ──────────────────────────────
+
+
+class TestFrontendWiring:
+    def test_index_references_static_assets(self):
+        """Root HTML must reference /static/style.css and /static/app.js."""
+        r = client.get("/")
+        assert r.status_code == 200
+        html = r.text
+        assert "/static/style.css" in html
+        assert "/static/app.js" in html
+
+    def test_static_css_served(self):
+        r = client.get("/static/style.css")
+        assert r.status_code == 200
+        assert "text/css" in r.headers["content-type"]
+
+    def test_static_js_served(self):
+        r = client.get("/static/app.js")
+        assert r.status_code == 200
+        assert "javascript" in r.headers["content-type"]
+
+    def test_health_not_shadowed_by_static_mount(self):
+        r = client.get("/health")
+        assert r.status_code == 200
+        assert r.json() == {"status": "ok"}
+
+    def test_api_extract_not_shadowed_by_static_mount(self):
+        """POST /api/extract still works after static mount."""
+        r = _upload("single_establishment.dsn")
+        assert r.status_code == 200
+        assert "source_file" in r.json()
+
+    def test_wrong_extension_rejected_by_server(self):
+        """Server returns 422 for non-.dsn files (defence-in-depth for client-side gate)."""
+        r = client.post(
+            "/api/extract",
+            files={"file": ("data.txt", b"content", "text/plain")},
+        )
+        assert r.status_code == 422
+
+
 # ── CORS ───────────────────────────────────────────────────────
 
 

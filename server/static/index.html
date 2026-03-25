@@ -4,8 +4,165 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DSN Reader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
 </head>
-<body>
-  <p>DSN Reader — upload UI coming in Slice 7</p>
+<body data-state="empty">
+
+  <!-- ── Drop zone screen ──────────────────────────────────── -->
+  <main id="dropzone-screen" class="screen">
+    <div id="dropzone" class="dropzone">
+      <div class="dropzone__icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <p class="dropzone__label" id="dropzone-label">Drop a .dsn file here</p>
+      <p class="dropzone__sublabel" id="dropzone-sublabel">or click to browse</p>
+      <input type="file" id="file-input" accept=".dsn" hidden>
+      <button id="browse-btn" class="btn btn--secondary" type="button">Choose file</button>
+      <div id="spinner" class="spinner" hidden></div>
+      <p id="spinner-label" class="spinner-label" hidden>Processing...</p>
+      <p id="dropzone-error" class="dropzone__error"></p>
+    </div>
+  </main>
+
+  <!-- ── Error screen ──────────────────────────────────────── -->
+  <main id="error-screen" class="screen">
+    <div class="error-card">
+      <p class="error-card__title" id="error-title">Error</p>
+      <p class="error-card__detail" id="error-detail"></p>
+      <ul class="error-card__warnings" id="error-warnings"></ul>
+      <button class="btn btn--primary" type="button" data-action="reset">Upload another file</button>
+    </div>
+  </main>
+
+  <!-- ── Results screen ────────────────────────────────────── -->
+  <main id="results-screen" class="screen">
+
+    <!-- Header -->
+    <header class="results-header">
+      <div class="results-header__meta">
+        <h1 class="results-header__company" id="header-company"></h1>
+        <div class="results-header__details">
+          <span class="mono" id="header-siret"></span>
+          <span class="mono" id="header-period"></span>
+        </div>
+      </div>
+      <button class="btn btn--secondary" type="button" data-action="reset">Upload another</button>
+    </header>
+
+    <!-- Scope toggle -->
+    <div class="scope-toggle">
+      <button class="scope-toggle__btn scope-toggle__btn--active" type="button" data-scope="global">Global</button>
+      <button class="scope-toggle__btn" type="button" data-scope="establishment">Per establishment</button>
+    </div>
+
+    <!-- Establishment tabs -->
+    <nav id="establishment-tabs" class="tab-bar" hidden></nav>
+
+    <!-- Establishment detail (shown in per-establishment view) -->
+    <div id="establishment-detail" class="establishment-detail" hidden></div>
+
+    <!-- Warnings banner -->
+    <div id="warnings-banner" class="warnings-banner" hidden>
+      <div class="warnings-banner__icon">&#9888;</div>
+      <div>
+        <p class="warnings-banner__title">Quality warnings</p>
+        <ul class="warnings-banner__list" id="warnings-list"></ul>
+      </div>
+    </div>
+
+    <!-- Summary cards -->
+    <section class="card-row">
+      <div class="summary-card">
+        <span class="summary-card__label">Employees</span>
+        <span class="summary-card__value" id="card-employees">--</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-card__label">Hires</span>
+        <span class="summary-card__value" id="card-hires">--</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-card__label">Exits</span>
+        <span class="summary-card__value" id="card-exits">--</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-card__label">Stagiaires</span>
+        <span class="summary-card__value" id="card-stagiaires">--</span>
+      </div>
+    </section>
+
+    <!-- Retirement category table -->
+    <section class="data-section">
+      <h2 class="data-section__title">By retirement category</h2>
+      <table class="data-table">
+        <thead>
+          <tr><th>Code</th><th>Label</th><th>Count</th></tr>
+        </thead>
+        <tbody id="table-retirement"></tbody>
+      </table>
+    </section>
+
+    <!-- Contract nature table -->
+    <section class="data-section">
+      <h2 class="data-section__title">By contract nature</h2>
+      <table class="data-table">
+        <thead>
+          <tr><th>Code</th><th>Label</th><th>Count</th></tr>
+        </thead>
+        <tbody id="table-contract"></tbody>
+      </table>
+    </section>
+
+    <!-- Amounts -->
+    <section class="data-section">
+      <h2 class="data-section__title">Amounts</h2>
+      <div class="kv-grid">
+        <div class="kv-row">
+          <span class="kv-row__label">Tickets restaurant (employer)</span>
+          <span class="kv-row__value" id="amt-tickets">&mdash;</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-row__label">Transport (public)</span>
+          <span class="kv-row__value" id="amt-transport-public">&mdash;</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-row__label">Transport (personal)</span>
+          <span class="kv-row__value" id="amt-transport-personal">&mdash;</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Extras -->
+    <section class="data-section">
+      <h2 class="data-section__title">Extras</h2>
+      <div class="kv-grid">
+        <div class="kv-row">
+          <span class="kv-row__label">Net fiscal</span>
+          <span class="kv-row__value" id="ext-net-fiscal">&mdash;</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-row__label">Net paid</span>
+          <span class="kv-row__value" id="ext-net-paid">&mdash;</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-row__label">PAS total</span>
+          <span class="kv-row__value" id="ext-pas">&mdash;</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-row__label">Gross (salary bases)</span>
+          <span class="kv-row__value" id="ext-gross">&mdash;</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
 </body>
 </html>
