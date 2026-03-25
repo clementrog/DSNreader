@@ -12,9 +12,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+server = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "python-multipart>=0.0.18",
+]
 dev = [
     "pytest>=8.0",
+    "httpx>=0.28",
 ]
+
+[tool.setuptools.packages.find]
+include = ["dsn_extractor*", "server*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
