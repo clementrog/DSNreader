@@ -7,6 +7,7 @@ import json
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from dsn_extractor.enums import CONTRACT_NATURE_LABELS, RETIREMENT_CATEGORY_LABELS
 from dsn_extractor.models import (
@@ -312,44 +313,44 @@ class TestModelInstantiation:
 
 class TestExtraFieldsRejected:
     def test_declaration_rejects_extra(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             Declaration(norm_version="P25V01", bogus="x")
 
     def test_company_rejects_extra(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             Company(siren="123456789", extra_field=1)
 
     def test_establishment_identity_rejects_extra(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             EstablishmentIdentity(nic="00011", foo="bar")
 
     def test_establishment_counts_rejects_extra(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             EstablishmentCounts(employee_blocks_count=3, unknown=True)
 
     def test_establishment_amounts_rejects_extra(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             EstablishmentAmounts(bonus=Decimal("100"))
 
     def test_establishment_extras_rejects_extra(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             EstablishmentExtras(mystery="value")
 
     def test_quality_rejects_extra(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             Quality(warnings=[], severity="high")
 
     def test_establishment_rejects_extra(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             Establishment(label="test")
 
     def test_dsn_output_rejects_extra(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             DSNOutput(source_file="test.dsn", version=2)
 
     def test_nested_extra_rejected_via_dict(self):
         """Extra field in a nested model provided as dict is also rejected."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             DSNOutput(declaration={"norm_version": "P25V01", "bogus": "x"})
 
 
@@ -443,9 +444,114 @@ class TestModelValidation:
 
     def test_validate_rejects_extra_field_in_json(self):
         payload = json.dumps({"siren": "123", "bogus": "x"})
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             Company.model_validate_json(payload)
 
     def test_validate_rejects_wrong_type(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             EstablishmentCounts.model_validate({"employee_blocks_count": "not_an_int"})
+
+
+# ---------------------------------------------------------------------------
+# Declaration.month YYYY-MM validation
+# ---------------------------------------------------------------------------
+
+
+class TestDeclarationMonth:
+    # -- Valid values --
+
+    def test_none_accepted(self):
+        d = Declaration(month=None)
+        assert d.month is None
+
+    def test_default_is_none(self):
+        d = Declaration()
+        assert d.month is None
+
+    def test_valid_january(self):
+        d = Declaration(month="2025-01")
+        assert d.month == "2025-01"
+
+    def test_valid_december(self):
+        d = Declaration(month="2025-12")
+        assert d.month == "2025-12"
+
+    def test_valid_via_model_validate(self):
+        d = Declaration.model_validate({"month": "2023-06"})
+        assert d.month == "2023-06"
+
+    def test_valid_via_model_validate_json(self):
+        d = Declaration.model_validate_json('{"month": "2025-01"}')
+        assert d.month == "2025-01"
+
+    # -- Rejected values --
+
+    def test_rejects_bare_year(self):
+        with pytest.raises(ValidationError):
+            Declaration(month="2025")
+
+    def test_rejects_full_date(self):
+        with pytest.raises(ValidationError):
+            Declaration(month="2025-01-15")
+
+    def test_rejects_month_zero(self):
+        with pytest.raises(ValidationError):
+            Declaration(month="2025-00")
+
+    def test_rejects_month_thirteen(self):
+        with pytest.raises(ValidationError):
+            Declaration(month="2025-13")
+
+    def test_rejects_no_dash(self):
+        with pytest.raises(ValidationError):
+            Declaration(month="202501")
+
+    def test_rejects_slash_separator(self):
+        with pytest.raises(ValidationError):
+            Declaration(month="2025/01")
+
+    def test_rejects_empty_string(self):
+        with pytest.raises(ValidationError):
+            Declaration(month="")
+
+    def test_rejects_garbage(self):
+        with pytest.raises(ValidationError):
+            Declaration(month="janvier")
+
+    def test_rejected_via_model_validate(self):
+        with pytest.raises(ValidationError):
+            Declaration.model_validate({"month": "2025-13"})
+
+    def test_rejected_via_model_validate_json(self):
+        with pytest.raises(ValidationError):
+            Declaration.model_validate_json('{"month": "not-valid"}')
+
+    # -- Whitespace and non-string edge cases --
+
+    def test_rejects_leading_whitespace(self):
+        with pytest.raises(ValidationError):
+            Declaration(month=" 2025-01")
+
+    def test_rejects_trailing_whitespace(self):
+        with pytest.raises(ValidationError):
+            Declaration(month="2025-01 ")
+
+    def test_rejects_integer(self):
+        with pytest.raises(ValidationError):
+            Declaration.model_validate({"month": 202501})
+
+    # -- Nested round-trip --
+
+    def test_month_survives_dsn_output_round_trip(self):
+        """month value survives DSNOutput -> model_dump(mode='json') -> model_validate."""
+        original = DSNOutput(
+            source_file="test.dsn",
+            declaration=Declaration(month="2025-01"),
+        )
+        data = original.model_dump(mode="json")
+        restored = DSNOutput.model_validate(data)
+        assert restored.declaration.month == "2025-01"
+
+        json_str = json.dumps(data)
+        restored_json = DSNOutput.model_validate_json(json_str)
+        assert restored_json.declaration.month == "2025-01"

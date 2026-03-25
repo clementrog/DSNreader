@@ -5,11 +5,12 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Declaration(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     norm_version: str | None = None
     declaration_nature_code: str | None = None
     declaration_kind_code: str | None = None
@@ -18,6 +19,18 @@ class Declaration(BaseModel):
     period_end: datetime.date | None = None
     month: str | None = None  # YYYY-MM derived from period_start
     dsn_id: str | None = None
+
+    @field_validator("month")
+    @classmethod
+    def _month_must_be_yyyy_mm(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("month must be a string in YYYY-MM format")
+        import re
+        if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", v):
+            raise ValueError(f"month must match YYYY-MM format, got {v!r}")
+        return v
 
 
 class Company(BaseModel):
