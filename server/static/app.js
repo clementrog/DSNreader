@@ -137,15 +137,15 @@
     $body.dataset.state = state.phase;
 
     if (state.phase === "uploading") {
-      $dropzoneLabel.textContent = "Processing...";
+      $dropzoneLabel.textContent = "Traitement en cours...";
       $dropzoneSublabel.textContent = "";
       $browseBtn.hidden = true;
       $spinner.hidden = false;
       $spinnerLabel.hidden = false;
       $dropzoneError.textContent = "";
     } else if (state.phase === "empty") {
-      $dropzoneLabel.textContent = "Drop a .dsn file here";
-      $dropzoneSublabel.textContent = "or click to browse";
+      $dropzoneLabel.textContent = "D\u00e9posez un fichier .dsn ici";
+      $dropzoneSublabel.textContent = "ou cliquez pour parcourir";
       $browseBtn.hidden = false;
       $spinner.hidden = true;
       $spinnerLabel.hidden = true;
@@ -164,7 +164,7 @@
 
   function renderError() {
     var err = state.error;
-    $errorDetail.textContent = err.detail || "An unknown error occurred.";
+    $errorDetail.textContent = err.detail || "Une erreur inconnue s\u2019est produite.";
     $errorWarnings.innerHTML = "";
     if (err.warnings && err.warnings.length > 0) {
       err.warnings.forEach(function (w) {
@@ -267,7 +267,7 @@
     if (identity.siret) items.push({ label: "SIRET", value: formatSiret(identity.siret) });
     if (identity.naf_code) items.push({ label: "NAF", value: identity.naf_code });
     if (identity.ccn_code) items.push({ label: "CCN", value: identity.ccn_code });
-    if (identity.city) items.push({ label: "City", value: identity.city });
+    if (identity.city) items.push({ label: "Ville", value: identity.city });
 
     if (items.length === 0) {
       $establishmentDetail.hidden = true;
@@ -295,7 +295,7 @@
     var codes = Object.keys(data);
 
     if (codes.length === 0) {
-      $tableRetirement.innerHTML = '<tr><td colspan="3" class="data-table__empty">No data</td></tr>';
+      $tableRetirement.innerHTML = '<tr><td colspan="3" class="data-table__empty">Aucune donn\u00e9e</td></tr>';
       return;
     }
 
@@ -315,7 +315,7 @@
     var codes = Object.keys(data);
 
     if (codes.length === 0) {
-      $tableContract.innerHTML = '<tr><td colspan="3" class="data-table__empty">No data</td></tr>';
+      $tableContract.innerHTML = '<tr><td colspan="3" class="data-table__empty">Aucune donn\u00e9e</td></tr>';
       return;
     }
 
@@ -387,7 +387,7 @@
 
   function handleFile(file) {
     if (!isDsnFile(file)) {
-      showDropzoneError("Only .dsn files are accepted");
+      showDropzoneError("Seuls les fichiers .dsn sont accept\u00e9s");
       return;
     }
     clearDropzoneError();
@@ -407,7 +407,7 @@
       if (!res.ok) {
         setState({
           phase: "error",
-          error: { detail: json.detail || "Upload failed", warnings: json.warnings || [] },
+          error: { detail: json.detail || "\u00c9chec du chargement", warnings: json.warnings || [] },
         });
         return;
       }
@@ -416,7 +416,7 @@
     } catch (err) {
       setState({
         phase: "error",
-        error: { detail: "Network error: " + err.message, warnings: [] },
+        error: { detail: "Erreur r\u00e9seau\u00a0: " + err.message, warnings: [] },
       });
     }
   }
@@ -506,6 +506,20 @@
   $dropzone.addEventListener("click", function (e) {
     if (e.target === $browseBtn || e.target === $fileInput) return;
     if (state.phase === "empty") $fileInput.click();
+  });
+
+  // ── Theme toggle ────────────────────────────────────────
+
+  var $themeToggle = document.getElementById("theme-toggle");
+  $themeToggle.addEventListener("click", function () {
+    var isLight = document.documentElement.getAttribute("data-theme") === "light";
+    if (isLight) {
+      document.documentElement.removeAttribute("data-theme");
+      localStorage.removeItem("dsn-theme");
+    } else {
+      document.documentElement.setAttribute("data-theme", "light");
+      localStorage.setItem("dsn-theme", "light");
+    }
   });
 
   // Initial render

@@ -55,11 +55,11 @@ async def api_extract(file: UploadFile) -> JSONResponse:
     if len(content) > MAX_UPLOAD_BYTES:
         return _error(413, "File too large: maximum 10 MB")
 
-    # 3. Decode UTF-8
+    # 3. Decode text (try UTF-8, fall back to Latin-1)
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
-        return _error(422, "File is not valid UTF-8 text")
+        text = content.decode("latin-1")
 
     # 4. Parse
     parsed = parse(text)

@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DSN Reader</title>
+  <script>
+    // Apply saved theme before first paint to avoid flash
+    (function() {
+      var t = localStorage.getItem("dsn-theme");
+      if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -11,6 +18,16 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body data-state="empty">
+
+  <!-- ── Theme toggle ──────────────────────────────────────── -->
+  <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Changer de thème">
+    <svg class="theme-toggle__icon theme-toggle__icon--dark" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+    </svg>
+    <svg class="theme-toggle__icon theme-toggle__icon--light" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  </button>
 
   <!-- ── Drop zone screen ──────────────────────────────────── -->
   <main id="dropzone-screen" class="screen">
@@ -22,12 +39,12 @@
           <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
       </div>
-      <p class="dropzone__label" id="dropzone-label">Drop a .dsn file here</p>
-      <p class="dropzone__sublabel" id="dropzone-sublabel">or click to browse</p>
+      <p class="dropzone__label" id="dropzone-label">D&#233;posez un fichier .dsn ici</p>
+      <p class="dropzone__sublabel" id="dropzone-sublabel">ou cliquez pour parcourir</p>
       <input type="file" id="file-input" accept=".dsn" hidden>
-      <button id="browse-btn" class="btn btn--secondary" type="button">Choose file</button>
+      <button id="browse-btn" class="btn btn--secondary" type="button">Choisir un fichier</button>
       <div id="spinner" class="spinner" hidden></div>
-      <p id="spinner-label" class="spinner-label" hidden>Processing...</p>
+      <p id="spinner-label" class="spinner-label" hidden>Traitement en cours...</p>
       <p id="dropzone-error" class="dropzone__error"></p>
     </div>
   </main>
@@ -35,10 +52,10 @@
   <!-- ── Error screen ──────────────────────────────────────── -->
   <main id="error-screen" class="screen">
     <div class="error-card">
-      <p class="error-card__title" id="error-title">Error</p>
+      <p class="error-card__title" id="error-title">Erreur</p>
       <p class="error-card__detail" id="error-detail"></p>
       <ul class="error-card__warnings" id="error-warnings"></ul>
-      <button class="btn btn--primary" type="button" data-action="reset">Upload another file</button>
+      <button class="btn btn--primary" type="button" data-action="reset">Charger un autre fichier</button>
     </div>
   </main>
 
@@ -54,13 +71,13 @@
           <span class="mono" id="header-period"></span>
         </div>
       </div>
-      <button class="btn btn--secondary" type="button" data-action="reset">Upload another</button>
+      <button class="btn btn--secondary" type="button" data-action="reset">Nouveau fichier</button>
     </header>
 
     <!-- Scope toggle -->
     <div class="scope-toggle">
       <button class="scope-toggle__btn scope-toggle__btn--active" type="button" data-scope="global">Global</button>
-      <button class="scope-toggle__btn" type="button" data-scope="establishment">Per establishment</button>
+      <button class="scope-toggle__btn" type="button" data-scope="establishment">Par &#233;tablissement</button>
     </div>
 
     <!-- Establishment tabs -->
@@ -73,7 +90,7 @@
     <div id="warnings-banner" class="warnings-banner" hidden>
       <div class="warnings-banner__icon">&#9888;</div>
       <div>
-        <p class="warnings-banner__title">Quality warnings</p>
+        <p class="warnings-banner__title">Avertissements qualit&#233;</p>
         <ul class="warnings-banner__list" id="warnings-list"></ul>
       </div>
     </div>
@@ -81,15 +98,15 @@
     <!-- Summary cards -->
     <section class="card-row">
       <div class="summary-card">
-        <span class="summary-card__label">Employees</span>
+        <span class="summary-card__label">Salari&#233;s</span>
         <span class="summary-card__value" id="card-employees">--</span>
       </div>
       <div class="summary-card">
-        <span class="summary-card__label">Hires</span>
+        <span class="summary-card__label">Embauches</span>
         <span class="summary-card__value" id="card-hires">--</span>
       </div>
       <div class="summary-card">
-        <span class="summary-card__label">Exits</span>
+        <span class="summary-card__label">Sorties</span>
         <span class="summary-card__value" id="card-exits">--</span>
       </div>
       <div class="summary-card">
@@ -100,10 +117,10 @@
 
     <!-- Retirement category table -->
     <section class="data-section">
-      <h2 class="data-section__title">By retirement category</h2>
+      <h2 class="data-section__title">Par cat&#233;gorie de retraite</h2>
       <table class="data-table">
         <thead>
-          <tr><th>Code</th><th>Label</th><th>Count</th></tr>
+          <tr><th>Code</th><th>Libell&#233;</th><th>Nombre</th></tr>
         </thead>
         <tbody id="table-retirement"></tbody>
       </table>
@@ -111,10 +128,10 @@
 
     <!-- Contract nature table -->
     <section class="data-section">
-      <h2 class="data-section__title">By contract nature</h2>
+      <h2 class="data-section__title">Par nature de contrat</h2>
       <table class="data-table">
         <thead>
-          <tr><th>Code</th><th>Label</th><th>Count</th></tr>
+          <tr><th>Code</th><th>Libell&#233;</th><th>Nombre</th></tr>
         </thead>
         <tbody id="table-contract"></tbody>
       </table>
@@ -122,10 +139,10 @@
 
     <!-- Amounts -->
     <section class="data-section">
-      <h2 class="data-section__title">Amounts</h2>
+      <h2 class="data-section__title">Montants</h2>
       <div class="kv-grid">
         <div class="kv-row">
-          <span class="kv-row__label">Tickets restaurant (employer)</span>
+          <span class="kv-row__label">Tickets restaurant (employeur)</span>
           <span class="kv-row__value" id="amt-tickets">&mdash;</span>
         </div>
         <div class="kv-row">
@@ -133,7 +150,7 @@
           <span class="kv-row__value" id="amt-transport-public">&mdash;</span>
         </div>
         <div class="kv-row">
-          <span class="kv-row__label">Transport (personal)</span>
+          <span class="kv-row__label">Transport (personnel)</span>
           <span class="kv-row__value" id="amt-transport-personal">&mdash;</span>
         </div>
       </div>
@@ -141,14 +158,14 @@
 
     <!-- Extras -->
     <section class="data-section">
-      <h2 class="data-section__title">Extras</h2>
+      <h2 class="data-section__title">Compl&#233;ments</h2>
       <div class="kv-grid">
         <div class="kv-row">
           <span class="kv-row__label">Net fiscal</span>
           <span class="kv-row__value" id="ext-net-fiscal">&mdash;</span>
         </div>
         <div class="kv-row">
-          <span class="kv-row__label">Net paid</span>
+          <span class="kv-row__label">Net vers&#233;</span>
           <span class="kv-row__value" id="ext-net-paid">&mdash;</span>
         </div>
         <div class="kv-row">
@@ -156,7 +173,7 @@
           <span class="kv-row__value" id="ext-pas">&mdash;</span>
         </div>
         <div class="kv-row">
-          <span class="kv-row__label">Gross (salary bases)</span>
+          <span class="kv-row__label">Brut (bases salaire)</span>
           <span class="kv-row__value" id="ext-gross">&mdash;</span>
         </div>
       </div>

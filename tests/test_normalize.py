@@ -185,7 +185,7 @@ class TestLookupEnumLabel:
         assert lookup_enum_label("29", CONTRACT_NATURE_LABELS) == ("convention_stage", True)
 
     def test_unknown_contract_nature(self):
-        assert lookup_enum_label("50", CONTRACT_NATURE_LABELS) == ("50", False)
+        assert lookup_enum_label("77", CONTRACT_NATURE_LABELS) == ("77", False)
 
     def test_empty_string(self):
         assert lookup_enum_label("", RETIREMENT_CATEGORY_LABELS) == ("", False)
@@ -211,7 +211,10 @@ class TestEnumMaps:
         assert set(RETIREMENT_CATEGORY_LABELS.keys()) == {"01", "02", "04", "98", "99"}
 
     def test_contract_nature_keys(self):
-        assert set(CONTRACT_NATURE_LABELS.keys()) == {"01", "02", "29"}
+        assert set(CONTRACT_NATURE_LABELS.keys()) == {
+            "01", "02", "03", "07", "08", "09", "10", "29", "32",
+            "50", "60", "70", "80", "81", "82", "89", "90", "91", "92", "93",
+        }
 
     def test_retirement_values_unique(self):
         values = list(RETIREMENT_CATEGORY_LABELS.values())

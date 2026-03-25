@@ -59,6 +59,34 @@
   --radius-lg: 12px;
 }
 
+/* ── Light theme ──────────────────────────────────────────── */
+
+:root[data-theme="light"] {
+  --color-root: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f0f0f2;
+  --color-surface-active: #e5e5ea;
+
+  --color-border: #d1d1d6;
+  --color-border-subtle: #e5e5ea;
+
+  --color-text-primary: #1d1d1f;
+  --color-text-secondary: #6e6e73;
+  --color-text-tertiary: #aeaeb2;
+
+  --color-info: #0071e3;
+  --color-success: #248a3d;
+  --color-warning: #b25000;
+  --color-error: #d70015;
+
+  --color-accent: #0071e3;
+  --color-accent-hover: #0077ed;
+  --color-accent-active: #006edb;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
 /* ── Reset & base ─────────────────────────────────────────── */
 
 *, *::before, *::after {
@@ -579,6 +607,46 @@ body[data-state="error"] #error-screen {
 .establishment-detail__value {
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
+}
+
+/* ── Theme toggle ────────────────────────────────────────── */
+
+.theme-toggle {
+  position: fixed;
+  top: var(--sp-4);
+  right: var(--sp-4);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  box-shadow: var(--shadow-sm);
+}
+
+.theme-toggle:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-text-tertiary);
+  color: var(--color-text-primary);
+}
+
+/* Dark mode: show sun icon, hide moon */
+.theme-toggle__icon--dark { display: block; }
+.theme-toggle__icon--light { display: none; }
+
+/* Light mode: show moon icon, hide sun */
+:root[data-theme="light"] .theme-toggle__icon--dark { display: none; }
+:root[data-theme="light"] .theme-toggle__icon--light { display: block; }
+
+:root[data-theme="light"] .btn--primary {
+  color: #fff;
 }
 
 /* ── Responsive ───────────────────────────────────────────── */

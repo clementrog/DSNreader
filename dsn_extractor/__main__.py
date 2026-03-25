@@ -35,8 +35,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        text = open(args.file, encoding="utf-8").read()
-    except (FileNotFoundError, PermissionError, UnicodeDecodeError, OSError) as exc:
+        try:
+            text = open(args.file, encoding="utf-8").read()
+        except UnicodeDecodeError:
+            text = open(args.file, encoding="latin-1").read()
+    except (FileNotFoundError, PermissionError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 

@@ -461,11 +461,11 @@ class TestUnknownEnumCodes:
 
     def test_unknown_contract_nature_preserved(self, unknown_enum_codes_text: str) -> None:
         out = _extract_fixture(unknown_enum_codes_text)
-        assert "50" in out.establishments[0].counts.employees_by_contract_nature_code
+        assert "77" in out.establishments[0].counts.employees_by_contract_nature_code
 
     def test_unknown_contract_nature_warning(self, unknown_enum_codes_text: str) -> None:
         out = _extract_fixture(unknown_enum_codes_text)
-        assert any("Unknown contract nature code: '50'" in w for w in out.global_quality.warnings)
+        assert any("Unknown contract nature code: '77'" in w for w in out.global_quality.warnings)
 
     def test_extraction_succeeds(self, unknown_enum_codes_text: str) -> None:
         out = _extract_fixture(unknown_enum_codes_text)

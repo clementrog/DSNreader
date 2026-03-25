@@ -126,15 +126,15 @@ class TestErrors:
         assert "too large" in body["detail"].lower()
         assert isinstance(body["warnings"], list)
 
-    def test_non_utf8(self):
+    def test_non_utf8_falls_back_to_latin1(self):
+        """Non-UTF-8 bytes are decoded via Latin-1 fallback (no 422)."""
         r = client.post(
             "/api/extract",
             files={"file": ("bad.dsn", b"\x80\x81\x82\xff", "application/octet-stream")},
         )
-        assert r.status_code == 422
-        body = r.json()
-        assert "utf-8" in body["detail"].lower()
-        assert isinstance(body["warnings"], list)
+        # Decodes as Latin-1 but contains no valid DSN lines → 400
+        assert r.status_code == 400
+        assert isinstance(r.json()["warnings"], list)
 
 
 # ── Infrastructure ─────────────────────────────────────────────
