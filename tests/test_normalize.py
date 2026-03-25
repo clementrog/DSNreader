@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import datetime
+import json
 from decimal import Decimal
+
+import pytest
 
 from dsn_extractor.enums import CONTRACT_NATURE_LABELS, RETIREMENT_CATEGORY_LABELS
 from dsn_extractor.models import (
@@ -61,6 +64,39 @@ class TestNormalizeDate:
     def test_strips_whitespace(self):
         assert normalize_date(" 01012025 ") == datetime.date(2025, 1, 1)
 
+    # -- DSN date format contract (DDMMYYYY) --
+
+    def test_fixture_period_start(self):
+        """Fixture single_establishment.dsn: S20.G00.05.005,'01012025' = Jan 1."""
+        assert normalize_date("01012025") == datetime.date(2025, 1, 1)
+
+    def test_fixture_period_end(self):
+        """Fixture single_establishment.dsn: S20.G00.05.007,'31012025' = Jan 31."""
+        assert normalize_date("31012025") == datetime.date(2025, 1, 31)
+
+    def test_fixture_contract_start_mid_month(self):
+        """Fixture single_establishment.dsn: S21.G00.40.001,'15012025' = Jan 15."""
+        assert normalize_date("15012025") == datetime.date(2025, 1, 15)
+
+    def test_fixture_february_period(self):
+        """Fixture no_s54_blocks.dsn: period '01022025'-'28022025' = Feb 2025."""
+        assert normalize_date("01022025") == datetime.date(2025, 2, 1)
+        assert normalize_date("28022025") == datetime.date(2025, 2, 28)
+
+    def test_yyyymmdd_input_rejected_when_ambiguous(self):
+        """'20250101' interpreted as DDMMYYYY would be day=20, month=25 -> invalid."""
+        assert normalize_date("20250101") is None
+
+    def test_yyyymmdd_input_misinterpreted_when_plausible(self):
+        """'20251201' as DDMMYYYY = day=20, month=25 -> invalid. Not Dec 1 2025."""
+        assert normalize_date("20251201") is None
+
+    def test_iso_dash_format_rejected(self):
+        assert normalize_date("2025-01-01") is None
+
+    def test_slash_format_rejected(self):
+        assert normalize_date("01/01/2025") is None
+
 
 # ---------------------------------------------------------------------------
 # normalize_decimal
@@ -91,6 +127,23 @@ class TestNormalizeDecimal:
 
     def test_strips_whitespace(self):
         assert normalize_decimal(" 42.50 ") == Decimal("42.50")
+
+    # -- Non-finite rejection --
+
+    def test_nan_returns_none(self):
+        assert normalize_decimal("NaN") is None
+
+    def test_snan_returns_none(self):
+        assert normalize_decimal("sNaN") is None
+
+    def test_infinity_returns_none(self):
+        assert normalize_decimal("Infinity") is None
+
+    def test_negative_infinity_returns_none(self):
+        assert normalize_decimal("-Infinity") is None
+
+    def test_inf_shorthand_returns_none(self):
+        assert normalize_decimal("Inf") is None
 
 
 # ---------------------------------------------------------------------------
@@ -250,3 +303,149 @@ class TestModelInstantiation:
         q2 = Quality()
         q1.warnings.append("test warning")
         assert q2.warnings == []
+
+
+# ---------------------------------------------------------------------------
+# Extra fields rejected (extra="forbid")
+# ---------------------------------------------------------------------------
+
+
+class TestExtraFieldsRejected:
+    def test_declaration_rejects_extra(self):
+        with pytest.raises(Exception):
+            Declaration(norm_version="P25V01", bogus="x")
+
+    def test_company_rejects_extra(self):
+        with pytest.raises(Exception):
+            Company(siren="123456789", extra_field=1)
+
+    def test_establishment_identity_rejects_extra(self):
+        with pytest.raises(Exception):
+            EstablishmentIdentity(nic="00011", foo="bar")
+
+    def test_establishment_counts_rejects_extra(self):
+        with pytest.raises(Exception):
+            EstablishmentCounts(employee_blocks_count=3, unknown=True)
+
+    def test_establishment_amounts_rejects_extra(self):
+        with pytest.raises(Exception):
+            EstablishmentAmounts(bonus=Decimal("100"))
+
+    def test_establishment_extras_rejects_extra(self):
+        with pytest.raises(Exception):
+            EstablishmentExtras(mystery="value")
+
+    def test_quality_rejects_extra(self):
+        with pytest.raises(Exception):
+            Quality(warnings=[], severity="high")
+
+    def test_establishment_rejects_extra(self):
+        with pytest.raises(Exception):
+            Establishment(label="test")
+
+    def test_dsn_output_rejects_extra(self):
+        with pytest.raises(Exception):
+            DSNOutput(source_file="test.dsn", version=2)
+
+    def test_nested_extra_rejected_via_dict(self):
+        """Extra field in a nested model provided as dict is also rejected."""
+        with pytest.raises(Exception):
+            DSNOutput(declaration={"norm_version": "P25V01", "bogus": "x"})
+
+
+# ---------------------------------------------------------------------------
+# Validation-path tests (model_validate / model_validate_json)
+# ---------------------------------------------------------------------------
+
+
+class TestModelValidation:
+    def test_declaration_validate_from_dict(self):
+        d = Declaration.model_validate({
+            "norm_version": "P25V01",
+            "period_start": "2025-01-01",
+            "month": "2025-01",
+        })
+        assert d.norm_version == "P25V01"
+        assert d.period_start == datetime.date(2025, 1, 1)
+        assert d.month == "2025-01"
+
+    def test_company_validate_from_dict(self):
+        c = Company.model_validate({
+            "siren": "123456789",
+            "nic": "00011",
+            "siret": "12345678900011",
+        })
+        assert c.siret == "12345678900011"
+
+    def test_establishment_counts_validate_from_dict(self):
+        c = EstablishmentCounts.model_validate({
+            "employee_blocks_count": 3,
+            "employees_by_retirement_category_code": {"01": 2, "04": 1},
+        })
+        assert c.employee_blocks_count == 3
+        assert c.employees_by_retirement_category_code == {"01": 2, "04": 1}
+        # Unset fields get defaults
+        assert c.stagiaires == 0
+
+    def test_establishment_amounts_validate_from_dict(self):
+        a = EstablishmentAmounts.model_validate({
+            "tickets_restaurant_employer_contribution_total": "150.00",
+        })
+        assert a.tickets_restaurant_employer_contribution_total == Decimal("150.00")
+        assert a.transport_public_total is None
+
+    def test_dsn_output_validate_from_nested_dict(self):
+        out = DSNOutput.model_validate({
+            "source_file": "test.dsn",
+            "declaration": {"month": "2025-01", "period_start": "2025-01-01"},
+            "company": {"siren": "123456789"},
+            "establishments": [{
+                "identity": {"nic": "00011"},
+                "counts": {"employee_blocks_count": 5},
+            }],
+        })
+        assert out.source_file == "test.dsn"
+        assert out.declaration.month == "2025-01"
+        assert out.company.siren == "123456789"
+        assert len(out.establishments) == 1
+        assert out.establishments[0].identity.nic == "00011"
+        assert out.establishments[0].counts.employee_blocks_count == 5
+
+    def test_declaration_validate_json(self):
+        payload = json.dumps({
+            "norm_version": "P25V01",
+            "period_start": "2025-01-01",
+            "period_end": "2025-01-31",
+            "month": "2025-01",
+        })
+        d = Declaration.model_validate_json(payload)
+        assert d.period_start == datetime.date(2025, 1, 1)
+        assert d.period_end == datetime.date(2025, 1, 31)
+
+    def test_dsn_output_validate_json(self):
+        payload = json.dumps({
+            "source_file": "janvier.dsn",
+            "declaration": {"month": "2025-01"},
+            "company": {"siren": "123456789", "name": "ACME"},
+            "global_counts": {
+                "employee_blocks_count": 10,
+                "employees_by_retirement_category_code": {"01": 6, "04": 4},
+            },
+            "global_amounts": {
+                "tickets_restaurant_employer_contribution_total": "300.00",
+            },
+        })
+        out = DSNOutput.model_validate_json(payload)
+        assert out.source_file == "janvier.dsn"
+        assert out.company.name == "ACME"
+        assert out.global_counts.employee_blocks_count == 10
+        assert out.global_amounts.tickets_restaurant_employer_contribution_total == Decimal("300.00")
+
+    def test_validate_rejects_extra_field_in_json(self):
+        payload = json.dumps({"siren": "123", "bogus": "x"})
+        with pytest.raises(Exception):
+            Company.model_validate_json(payload)
+
+    def test_validate_rejects_wrong_type(self):
+        with pytest.raises(Exception):
+            EstablishmentCounts.model_validate({"employee_blocks_count": "not_an_int"})

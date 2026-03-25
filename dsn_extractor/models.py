@@ -5,10 +5,11 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Declaration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     norm_version: str | None = None
     declaration_nature_code: str | None = None
     declaration_kind_code: str | None = None
@@ -20,6 +21,8 @@ class Declaration(BaseModel):
 
 
 class Company(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     siren: str | None = None
     nic: str | None = None
     siret: str | None = None  # siren + nic, computed by extractor
@@ -31,6 +34,8 @@ class Company(BaseModel):
 
 
 class EstablishmentIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     nic: str | None = None
     siret: str | None = None  # company siren + establishment nic
     name: str | None = None
@@ -43,6 +48,8 @@ class EstablishmentIdentity(BaseModel):
 
 
 class EstablishmentCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     employee_blocks_count: int = 0
     stagiaires: int = 0
     employees_by_retirement_category_code: dict[str, int] = Field(default_factory=dict)
@@ -54,12 +61,16 @@ class EstablishmentCounts(BaseModel):
 
 
 class EstablishmentAmounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     tickets_restaurant_employer_contribution_total: Decimal | None = None
     transport_public_total: Decimal | None = None
     transport_personal_total: Decimal | None = None
 
 
 class EstablishmentExtras(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     net_fiscal_sum: Decimal | None = None
     net_paid_sum: Decimal | None = None
     pas_sum: Decimal | None = None
@@ -67,10 +78,14 @@ class EstablishmentExtras(BaseModel):
 
 
 class Quality(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     warnings: list[str] = Field(default_factory=list)
 
 
 class Establishment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     identity: EstablishmentIdentity = Field(default_factory=EstablishmentIdentity)
     counts: EstablishmentCounts = Field(default_factory=EstablishmentCounts)
     amounts: EstablishmentAmounts = Field(default_factory=EstablishmentAmounts)
@@ -79,6 +94,8 @@ class Establishment(BaseModel):
 
 
 class DSNOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     source_file: str = ""
     declaration: Declaration = Field(default_factory=Declaration)
     company: Company = Field(default_factory=Company)
