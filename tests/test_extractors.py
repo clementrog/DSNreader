@@ -1563,7 +1563,7 @@ class TestModelDefaults:
         pt = PayrollTracking()
         assert pt.billable_entry_names == []
         assert pt.billable_exit_names == []
-        assert pt.billable_absence_names == []
+        assert pt.billable_absence_details == []
 
     def test_establishment_counts_name_list_defaults(self) -> None:
         from dsn_extractor.models import EstablishmentCounts
@@ -1571,7 +1571,7 @@ class TestModelDefaults:
         c = EstablishmentCounts()
         assert c.entry_employee_names == []
         assert c.exit_employee_names == []
-        assert c.absence_employee_names == []
+        assert c.absence_event_details == []
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1590,22 +1590,32 @@ class TestEmployeeNameLists:
         # MARTIN exits 31/01/2025 with rupture 059
         assert out.establishments[0].counts.exit_employee_names == ["MARTIN SOPHIE"]
 
-    def test_absence_names_from_fixture(self, with_absences_text: str) -> None:
+    def test_absence_details_from_fixture(self, with_absences_text: str) -> None:
         out = _extract_fixture(with_absences_text)
-        # DUPONT has 2 absences, MARTIN has 1 — each appears once, DSN order
-        assert out.establishments[0].counts.absence_employee_names == [
-            "DUPONT JEAN",
-            "MARTIN SOPHIE",
-        ]
+        details = out.establishments[0].counts.absence_event_details
+        # DUPONT: 2 events (01, 03), MARTIN: 1 event (05) — one per event, DSN order
+        assert len(details) == 3
+        assert details[0].employee_name == "DUPONT JEAN"
+        assert details[0].motif_code == "01"
+        assert details[0].motif_label == "maladie"
+        assert details[1].employee_name == "DUPONT JEAN"
+        assert details[1].motif_code == "03"
+        assert details[1].motif_label == "accident_travail"
+        assert details[2].employee_name == "MARTIN SOPHIE"
+        assert details[2].motif_code == "05"
+        assert details[2].motif_label == "maternite"
 
-    def test_absence_names_deduplicated_per_employee(self) -> None:
+    def test_absence_details_one_per_event(self) -> None:
+        """3 absence events on one employee → 3 detail entries (not deduplicated)."""
         text = (
             MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
             + _make_employee(name="DOE", first="JOHN", absences=["01", "01", "03"])
             + FOOTER
         )
         out = _extract_fixture(text)
-        assert out.establishments[0].counts.absence_employee_names == ["DOE JOHN"]
+        details = out.establishments[0].counts.absence_event_details
+        assert len(details) == 3
+        assert all(d.employee_name == "DOE JOHN" for d in details)
 
     def test_entry_names_empty_when_no_entries(self) -> None:
         text = (
@@ -1702,10 +1712,10 @@ class TestEmployeeNameLists:
         pt = out.establishments[0].payroll_tracking
         assert len(pt.billable_exit_names) == pt.billable_exits
 
-    def test_len_absence_names_lte_metric(self, with_absences_text: str) -> None:
+    def test_len_absence_details_equals_metric(self, with_absences_text: str) -> None:
         out = _extract_fixture(with_absences_text)
         pt = out.establishments[0].payroll_tracking
-        assert len(pt.billable_absence_names) <= pt.billable_absence_events
+        assert len(pt.billable_absence_details) == pt.billable_absence_events
 
 
 class TestEmployeeNameAliasing:
@@ -1721,3 +1731,148 @@ class TestEmployeeNameAliasing:
         original = list(out.global_payroll_tracking.billable_entry_names)
         out.establishments[0].payroll_tracking.billable_entry_names.append("BOGUS")
         assert out.global_payroll_tracking.billable_entry_names == original
+
+    def test_no_aliasing_absence_detail_tracking_to_counts(
+        self, with_absences_text: str
+    ) -> None:
+        out = _extract_fixture(with_absences_text)
+        est = out.establishments[0]
+        original_name = est.counts.absence_event_details[0].employee_name
+        est.payroll_tracking.billable_absence_details[0].employee_name = "BOGUS"
+        assert est.counts.absence_event_details[0].employee_name == original_name
+
+    def test_no_aliasing_absence_detail_est_to_global(
+        self, with_absences_text: str
+    ) -> None:
+        out = _extract_fixture(with_absences_text)
+        original_name = out.global_payroll_tracking.billable_absence_details[0].employee_name
+        out.establishments[0].payroll_tracking.billable_absence_details[0].employee_name = "BOGUS"
+        assert out.global_payroll_tracking.billable_absence_details[0].employee_name == original_name
+
+    def test_no_aliasing_absence_detail_global_counts_to_global_tracking(
+        self, with_absences_text: str
+    ) -> None:
+        out = _extract_fixture(with_absences_text)
+        original_name = out.global_payroll_tracking.billable_absence_details[0].employee_name
+        out.global_counts.absence_event_details[0].employee_name = "BOGUS"
+        assert out.global_payroll_tracking.billable_absence_details[0].employee_name == original_name
+
+    def test_no_aliasing_absence_detail_est_counts_to_global_counts(
+        self, with_absences_text: str
+    ) -> None:
+        out = _extract_fixture(with_absences_text)
+        original_name = out.global_counts.absence_event_details[0].employee_name
+        out.establishments[0].counts.absence_event_details[0].employee_name = "BOGUS"
+        assert out.global_counts.absence_event_details[0].employee_name == original_name
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Absence detail model + sensitive data
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestAbsenceDetailModel:
+    def test_absence_detail_has_all_fields(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        d = out.establishments[0].counts.absence_event_details[0]
+        assert hasattr(d, "employee_name")
+        assert hasattr(d, "motif_code")
+        assert hasattr(d, "motif_label")
+
+    def test_absence_detail_unknown_motif_uses_raw_code(
+        self, with_unknown_exit_and_absence_codes_text: str
+    ) -> None:
+        out = _extract_fixture(with_unknown_exit_and_absence_codes_text)
+        details = out.establishments[0].counts.absence_event_details
+        assert any(d.motif_code == "88" and d.motif_label == "88" for d in details)
+
+    def test_absence_detail_forbids_extra_fields(self) -> None:
+        from dsn_extractor.models import AbsenceDetail
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            AbsenceDetail(employee_name="X", motif_code="01", motif_label="m", bogus="x")  # type: ignore[call-arg]
+
+
+class TestSensitiveDataExclusion:
+    """Ensure NIR, NTT, and birth dates never appear in serialized output."""
+
+    def test_no_nir_in_output(self) -> None:
+        import json
+
+        nir = "1234567890123"
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + "S21.G00.30.001,'DUPONT'\n"
+            + "S21.G00.30.002,'JEAN'\n"
+            + f"S21.G00.30.003,'{nir}'\n"
+            + "S21.G00.30.004,'01011990'\n"
+            + "S21.G00.30.006,'1'\n"
+            + "S21.G00.40.001,'15012025'\n"
+            + "S21.G00.40.002,'04'\n"
+            + "S21.G00.40.003,'01'\n"
+            + "S21.G00.40.007,'01'\n"
+            + "S21.G00.50.002,'2000.00'\n"
+            + "S21.G00.50.004,'1800.00'\n"
+            + "S21.G00.50.009,'200.00'\n"
+            + "S21.G00.65.001,'01'\n"
+            + "S21.G00.65.002,'10012025'\n"
+            + "S21.G00.65.003,'15012025'\n"
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        serialized = json.dumps(out.model_dump(mode="json"))
+        assert nir not in serialized
+
+    def test_no_ntt_in_output(self) -> None:
+        import json
+
+        ntt = "2987654321098"
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + "S21.G00.30.001,'MARTIN'\n"
+            + "S21.G00.30.002,'SOPHIE'\n"
+            + f"S21.G00.30.018,'{ntt}'\n"
+            + "S21.G00.30.004,'15061985'\n"
+            + "S21.G00.30.006,'2'\n"
+            + "S21.G00.40.001,'15012025'\n"
+            + "S21.G00.40.002,'04'\n"
+            + "S21.G00.40.003,'01'\n"
+            + "S21.G00.40.007,'01'\n"
+            + "S21.G00.50.002,'2000.00'\n"
+            + "S21.G00.50.004,'1800.00'\n"
+            + "S21.G00.50.009,'200.00'\n"
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        serialized = json.dumps(out.model_dump(mode="json"))
+        assert ntt not in serialized
+
+    def test_no_nir_in_server_response(self) -> None:
+        from starlette.testclient import TestClient
+        from server.app import app
+
+        nir = "1234567890123"
+        dsn = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + "S21.G00.30.001,'TEST'\n"
+            + "S21.G00.30.002,'USER'\n"
+            + f"S21.G00.30.003,'{nir}'\n"
+            + "S21.G00.30.004,'01011990'\n"
+            + "S21.G00.30.006,'1'\n"
+            + "S21.G00.40.001,'15012025'\n"
+            + "S21.G00.40.002,'04'\n"
+            + "S21.G00.40.003,'01'\n"
+            + "S21.G00.40.007,'01'\n"
+            + "S21.G00.50.002,'2000.00'\n"
+            + "S21.G00.50.004,'1800.00'\n"
+            + "S21.G00.50.009,'200.00'\n"
+            + FOOTER
+        )
+        client = TestClient(app)
+        r = client.post(
+            "/api/extract",
+            files={"file": ("test.dsn", dsn.encode("utf-8"), "application/octet-stream")},
+        )
+        assert r.status_code == 200
+        assert nir not in r.text

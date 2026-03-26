@@ -20,6 +20,7 @@ from dsn_extractor.models import (
     EstablishmentCounts,
     EstablishmentExtras,
     EstablishmentIdentity,
+    AbsenceDetail,
     PayrollTracking,
     Quality,
     SocialAnalysis,
@@ -189,7 +190,7 @@ def _extract_counts(
     exiting_employees = 0
     entry_names: list[str] = []
     exit_names: list[str] = []
-    absence_names: list[str] = []
+    absence_details: list[AbsenceDetail] = []
 
     for emp in employee_blocks:
         display_name = _employee_display_name(emp)
@@ -266,8 +267,13 @@ def _extract_counts(
         if absence_motifs:
             absences_employees_count += 1
             absences_events_count += len(absence_motifs)
-            absence_names.append(display_name)
             for motif_code in absence_motifs:
+                motif_label, _ = lookup_enum_label(motif_code, ABSENCE_MOTIF_LABELS)
+                absence_details.append(AbsenceDetail(
+                    employee_name=display_name,
+                    motif_code=motif_code,
+                    motif_label=motif_label,
+                ))
                 absences_by_code[motif_code] = absences_by_code.get(motif_code, 0) + 1
                 _, was_known = lookup_enum_label(motif_code, ABSENCE_MOTIF_LABELS)
                 if not was_known:
@@ -290,7 +296,7 @@ def _extract_counts(
         absences_by_code=absences_by_code,
         entry_employee_names=entry_names,
         exit_employee_names=exit_names,
-        absence_employee_names=absence_names,
+        absence_event_details=absence_details,
     )
 
 
@@ -380,7 +386,7 @@ def _merge_counts(counts_list: list[EstablishmentCounts]) -> EstablishmentCounts
         _merge_dict(total.absences_by_code, c.absences_by_code)
         total.entry_employee_names += c.entry_employee_names
         total.exit_employee_names += c.exit_employee_names
-        total.absence_employee_names += c.absence_employee_names
+        total.absence_event_details += [d.model_copy() for d in c.absence_event_details]
     return total
 
 
@@ -490,7 +496,7 @@ def _compose_payroll_tracking(
         complexity_inputs=inputs,
         billable_entry_names=list(counts.entry_employee_names),
         billable_exit_names=list(counts.exit_employee_names),
-        billable_absence_names=list(counts.absence_employee_names),
+        billable_absence_details=[d.model_copy() for d in counts.absence_event_details],
     )
 
 

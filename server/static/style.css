@@ -737,6 +737,11 @@ body[data-state="error"] #error-screen {
   border-radius: 4px;
 }
 
+.name-tag__motif {
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
 /* ── Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 768px) {

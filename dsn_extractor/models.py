@@ -79,7 +79,7 @@ class EstablishmentCounts(BaseModel):
     absences_by_code: dict[str, int] = Field(default_factory=dict)
     entry_employee_names: list[str] = Field(default_factory=list)
     exit_employee_names: list[str] = Field(default_factory=list)
-    absence_employee_names: list[str] = Field(default_factory=list)
+    absence_event_details: list[AbsenceDetail] = Field(default_factory=list)
 
 
 class EstablishmentAmounts(BaseModel):
@@ -97,6 +97,14 @@ class EstablishmentExtras(BaseModel):
     net_paid_sum: Decimal | None = None
     pas_sum: Decimal | None = None
     gross_sum_from_salary_bases: Decimal | None = None
+
+
+class AbsenceDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    employee_name: str
+    motif_code: str
+    motif_label: str
 
 
 class Quality(BaseModel):
@@ -141,7 +149,7 @@ class PayrollTracking(BaseModel):
     complexity_inputs: dict[str, int] = Field(default_factory=dict)
     billable_entry_names: list[str] = Field(default_factory=list)
     billable_exit_names: list[str] = Field(default_factory=list)
-    billable_absence_names: list[str] = Field(default_factory=list)
+    billable_absence_details: list[AbsenceDetail] = Field(default_factory=list)
 
 
 class Establishment(BaseModel):

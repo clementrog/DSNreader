@@ -544,6 +544,17 @@
     }).join("");
   }
 
+  function renderAbsenceDetails(el, details) {
+    if (!details || details.length === 0) { el.innerHTML = ""; return; }
+    el.innerHTML = details.map(function (d) {
+      var motif = ABSENCE_MOTIF_LABELS[d.motif_code] || d.motif_label || d.motif_code;
+      return '<span class="name-tag">'
+        + escapeHtml(d.employee_name)
+        + ' <span class="name-tag__motif">\u2014 ' + escapeHtml(motif) + '</span>'
+        + '</span>';
+    }).join("");
+  }
+
   // ── Payroll tracking rendering ─────────────────────────────
 
   function renderPayrollTracking(pt) {
@@ -557,7 +568,7 @@
 
     renderNameList($ptEntriesNames, pt.billable_entry_names);
     renderNameList($ptExitsNames, pt.billable_exit_names);
-    renderNameList($ptAbsencesNames, pt.billable_absence_names);
+    renderAbsenceDetails($ptAbsencesNames, pt.billable_absence_details);
 
     $ptScoreValue.textContent = pt.complexity_score;
 

@@ -278,7 +278,7 @@ class TestResponseSchema:
         assert isinstance(pt["complexity_inputs"], dict)
         assert isinstance(pt["billable_entry_names"], list)
         assert isinstance(pt["billable_exit_names"], list)
-        assert isinstance(pt["billable_absence_names"], list)
+        assert isinstance(pt["billable_absence_details"], list)
 
     def test_response_validates_against_model(self):
         """Full API response round-trips through DSNOutput model validation."""
