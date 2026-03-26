@@ -5,7 +5,12 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
-from dsn_extractor.enums import CONTRACT_NATURE_LABELS, RETIREMENT_CATEGORY_LABELS
+from dsn_extractor.enums import (
+    ABSENCE_MOTIF_LABELS,
+    CONTRACT_END_REASON_LABELS,
+    CONTRACT_NATURE_LABELS,
+    RETIREMENT_CATEGORY_LABELS,
+)
 from dsn_extractor.models import (
     Company,
     Declaration,
@@ -15,7 +20,9 @@ from dsn_extractor.models import (
     EstablishmentCounts,
     EstablishmentExtras,
     EstablishmentIdentity,
+    PayrollTracking,
     Quality,
+    SocialAnalysis,
 )
 from dsn_extractor.normalize import lookup_enum_label, normalize_date, normalize_decimal, normalize_empty
 from dsn_extractor.parser import DSNRecord, EmployeeBlock, EstablishmentBlock, ParsedDSN
@@ -153,6 +160,12 @@ def _extract_counts(
     by_retirement_label: dict[str, int] = {}
     by_conventional_status: dict[str, int] = {}
     by_contract_nature: dict[str, int] = {}
+    by_contract_nature_label: dict[str, int] = {}
+    exit_reasons_by_code: dict[str, int] = {}
+    exit_reasons_by_label: dict[str, int] = {}
+    absences_by_code: dict[str, int] = {}
+    absences_employees_count = 0
+    absences_events_count = 0
     stagiaires = 0
     new_employees = 0
     exiting_employees = 0
@@ -162,9 +175,12 @@ def _extract_counts(
         nature_raw = _find_value(emp.records, "S21.G00.40.007")
         if nature_raw:
             by_contract_nature[nature_raw] = by_contract_nature.get(nature_raw, 0) + 1
+            nature_label, was_known = lookup_enum_label(nature_raw, CONTRACT_NATURE_LABELS)
+            by_contract_nature_label[nature_label] = (
+                by_contract_nature_label.get(nature_label, 0) + 1
+            )
             if nature_raw == "29":
                 stagiaires += 1
-            _, was_known = lookup_enum_label(nature_raw, CONTRACT_NATURE_LABELS)
             if not was_known:
                 warnings.append(f"Unknown contract nature code: {nature_raw!r}")
 
@@ -192,7 +208,7 @@ def _extract_counts(
         else:
             warnings.append("Employee block missing contract start date (S21.G00.40.001)")
 
-        # Exiting employees
+        # Exiting employees + exit reason aggregation
         end_date_raw = _find_value(emp.records, "S21.G00.62.001")
         if end_date_raw:
             end_date = normalize_date(end_date_raw)
@@ -205,6 +221,32 @@ def _extract_counts(
                 if period_start <= end_date <= period_end:
                     if rupture_code != "099":
                         exiting_employees += 1
+                    # Aggregate exit reason for in-period exits
+                    if rupture_code is not None:
+                        exit_reasons_by_code[rupture_code] = (
+                            exit_reasons_by_code.get(rupture_code, 0) + 1
+                        )
+                        reason_label, was_known = lookup_enum_label(
+                            rupture_code, CONTRACT_END_REASON_LABELS
+                        )
+                        exit_reasons_by_label[reason_label] = (
+                            exit_reasons_by_label.get(reason_label, 0) + 1
+                        )
+                        if not was_known:
+                            warnings.append(
+                                f"Unknown contract end reason code: {rupture_code!r}"
+                            )
+
+        # Absences / suspensions (S21.G00.65.001)
+        absence_motifs = _find_all_values(emp.records, "S21.G00.65.001")
+        if absence_motifs:
+            absences_employees_count += 1
+            absences_events_count += len(absence_motifs)
+            for motif_code in absence_motifs:
+                absences_by_code[motif_code] = absences_by_code.get(motif_code, 0) + 1
+                _, was_known = lookup_enum_label(motif_code, ABSENCE_MOTIF_LABELS)
+                if not was_known:
+                    warnings.append(f"Unknown absence motif code: {motif_code!r}")
 
     return EstablishmentCounts(
         employee_blocks_count=len(employee_blocks),
@@ -213,8 +255,14 @@ def _extract_counts(
         employees_by_retirement_category_label=by_retirement_label,
         employees_by_conventional_status_code=by_conventional_status,
         employees_by_contract_nature_code=by_contract_nature,
+        employees_by_contract_nature_label=by_contract_nature_label,
         new_employees_in_month=new_employees,
         exiting_employees_in_month=exiting_employees,
+        exit_reasons_by_code=exit_reasons_by_code,
+        exit_reasons_by_label=exit_reasons_by_label,
+        absences_employees_count=absences_employees_count,
+        absences_events_count=absences_events_count,
+        absences_by_code=absences_by_code,
     )
 
 
@@ -279,6 +327,12 @@ def _extract_extras(employee_blocks: list[EmployeeBlock]) -> EstablishmentExtras
 # ---------------------------------------------------------------------------
 
 
+def _merge_dict(target: dict[str, int], source: dict[str, int]) -> None:
+    """Merge source dict into target by summing values per key."""
+    for k, v in source.items():
+        target[k] = target.get(k, 0) + v
+
+
 def _merge_counts(counts_list: list[EstablishmentCounts]) -> EstablishmentCounts:
     total = EstablishmentCounts()
     for c in counts_list:
@@ -286,22 +340,16 @@ def _merge_counts(counts_list: list[EstablishmentCounts]) -> EstablishmentCounts
         total.stagiaires += c.stagiaires
         total.new_employees_in_month += c.new_employees_in_month
         total.exiting_employees_in_month += c.exiting_employees_in_month
-        for k, v in c.employees_by_retirement_category_code.items():
-            total.employees_by_retirement_category_code[k] = (
-                total.employees_by_retirement_category_code.get(k, 0) + v
-            )
-        for k, v in c.employees_by_retirement_category_label.items():
-            total.employees_by_retirement_category_label[k] = (
-                total.employees_by_retirement_category_label.get(k, 0) + v
-            )
-        for k, v in c.employees_by_conventional_status_code.items():
-            total.employees_by_conventional_status_code[k] = (
-                total.employees_by_conventional_status_code.get(k, 0) + v
-            )
-        for k, v in c.employees_by_contract_nature_code.items():
-            total.employees_by_contract_nature_code[k] = (
-                total.employees_by_contract_nature_code.get(k, 0) + v
-            )
+        total.absences_employees_count += c.absences_employees_count
+        total.absences_events_count += c.absences_events_count
+        _merge_dict(total.employees_by_retirement_category_code, c.employees_by_retirement_category_code)
+        _merge_dict(total.employees_by_retirement_category_label, c.employees_by_retirement_category_label)
+        _merge_dict(total.employees_by_conventional_status_code, c.employees_by_conventional_status_code)
+        _merge_dict(total.employees_by_contract_nature_code, c.employees_by_contract_nature_code)
+        _merge_dict(total.employees_by_contract_nature_label, c.employees_by_contract_nature_label)
+        _merge_dict(total.exit_reasons_by_code, c.exit_reasons_by_code)
+        _merge_dict(total.exit_reasons_by_label, c.exit_reasons_by_label)
+        _merge_dict(total.absences_by_code, c.absences_by_code)
     return total
 
 
@@ -331,6 +379,85 @@ def _merge_extras(extras_list: list[EstablishmentExtras]) -> EstablishmentExtras
             total.gross_sum_from_salary_bases, e.gross_sum_from_salary_bases
         )
     return total
+
+
+# ---------------------------------------------------------------------------
+# Composition helpers
+# ---------------------------------------------------------------------------
+
+
+# Complexity score weights — additive workload indicator, not billing.
+_COMPLEXITY_WEIGHTS = {
+    "bulletins": 1,
+    "entries": 3,
+    "exits": 3,
+    "absence_events": 2,
+    "dsn_anomalies": 5,
+}
+
+
+def _compose_social_analysis(
+    counts: EstablishmentCounts,
+    extras: EstablishmentExtras,
+    quality: Quality,
+) -> SocialAnalysis:
+    ret_labels = counts.employees_by_retirement_category_label
+    cadre = ret_labels.get("cadre", 0) + ret_labels.get("extension_cadre", 0)
+    non_cadre = ret_labels.get("non_cadre", 0)
+
+    return SocialAnalysis(
+        effectif=counts.employee_blocks_count,
+        entrees=counts.new_employees_in_month,
+        sorties=counts.exiting_employees_in_month,
+        stagiaires=counts.stagiaires,
+        cadre_count=cadre,
+        non_cadre_count=non_cadre,
+        contracts_by_code=dict(counts.employees_by_contract_nature_code),
+        contracts_by_label=dict(counts.employees_by_contract_nature_label),
+        exit_reasons_by_code=dict(counts.exit_reasons_by_code),
+        exit_reasons_by_label=dict(counts.exit_reasons_by_label),
+        absences_employees_count=counts.absences_employees_count,
+        absences_events_count=counts.absences_events_count,
+        absences_by_code=dict(counts.absences_by_code),
+        net_verse_total=extras.net_paid_sum,
+        net_fiscal_total=extras.net_fiscal_sum,
+        pas_total=extras.pas_sum,
+        quality_alerts_count=len(quality.warnings),
+        quality_alerts=list(quality.warnings),
+    )
+
+
+def _compose_payroll_tracking(
+    counts: EstablishmentCounts,
+    quality: Quality,
+) -> PayrollTracking:
+    bulletins = counts.employee_blocks_count
+    entries = counts.new_employees_in_month
+    exits = counts.exiting_employees_in_month
+    absence_events = counts.absences_events_count
+    anomalies = len(quality.warnings)
+
+    exceptional = exits + absence_events
+
+    inputs = {
+        "bulletins": bulletins,
+        "entries": entries,
+        "exits": exits,
+        "absence_events": absence_events,
+        "dsn_anomalies": anomalies,
+    }
+    score = sum(inputs[k] * _COMPLEXITY_WEIGHTS[k] for k in _COMPLEXITY_WEIGHTS)
+
+    return PayrollTracking(
+        bulletins=bulletins,
+        billable_entries=entries,
+        billable_exits=exits,
+        billable_absence_events=absence_events,
+        exceptional_events_count=exceptional,
+        dsn_anomalies_count=anomalies,
+        complexity_score=score,
+        complexity_inputs=inputs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -377,12 +504,15 @@ def extract(parsed: ParsedDSN, source_file: str = "") -> DSNOutput:
         amounts = _extract_amounts(est_block.s54_blocks, est_warnings)
         extras = _extract_extras(est_block.employee_blocks)
 
+        est_quality = Quality(warnings=est_warnings)
         est = Establishment(
             identity=identity,
             counts=counts,
             amounts=amounts,
             extras=extras,
-            quality=Quality(warnings=est_warnings),
+            quality=est_quality,
+            social_analysis=_compose_social_analysis(counts, extras, est_quality),
+            payroll_tracking=_compose_payroll_tracking(counts, est_quality),
         )
         establishments.append(est)
         all_counts.append(counts)
@@ -399,6 +529,8 @@ def extract(parsed: ParsedDSN, source_file: str = "") -> DSNOutput:
     for est in establishments:
         all_warnings.extend(est.quality.warnings)
 
+    global_quality = Quality(warnings=all_warnings)
+
     return DSNOutput(
         source_file=source_file,
         declaration=declaration,
@@ -407,5 +539,9 @@ def extract(parsed: ParsedDSN, source_file: str = "") -> DSNOutput:
         global_counts=global_counts,
         global_amounts=global_amounts,
         global_extras=global_extras,
-        global_quality=Quality(warnings=all_warnings),
+        global_quality=global_quality,
+        global_social_analysis=_compose_social_analysis(
+            global_counts, global_extras, global_quality
+        ),
+        global_payroll_tracking=_compose_payroll_tracking(global_counts, global_quality),
     )

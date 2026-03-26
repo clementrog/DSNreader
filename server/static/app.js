@@ -33,6 +33,64 @@
     "93": "Dispositif acad\u00e9mie des leaders",
   };
 
+  var EXIT_REASON_LABELS = {
+    "011": "Licenciement (liquidation judiciaire)",
+    "012": "Licenciement (redressement judiciaire)",
+    "014": "Licenciement \u00e9conomique",
+    "015": "Licenciement inaptitude (non pro.)",
+    "017": "Licenciement inaptitude (pro.)",
+    "020": "Licenciement faute grave",
+    "025": "Licenciement faute lourde",
+    "026": "Licenciement cause r\u00e9elle et s\u00e9rieuse",
+    "031": "Fin de CDD",
+    "032": "Fin de mission (int\u00e9rim)",
+    "034": "Fin de contrat d\u2019apprentissage",
+    "035": "Fin de p\u00e9riode d\u2019essai (salari\u00e9)",
+    "036": "Fin de mandat",
+    "038": "Mise \u00e0 la retraite",
+    "039": "D\u00e9part retraite (salari\u00e9)",
+    "043": "Rupture conventionnelle",
+    "058": "Prise d\u2019acte de rupture",
+    "059": "D\u00e9mission",
+    "065": "D\u00e9c\u00e8s",
+    "066": "D\u00e9part volontaire (PSE)",
+    "099": "Fin de relation (transfert)",
+  };
+
+  var ABSENCE_MOTIF_LABELS = {
+    "01": "Maladie",
+    "02": "Maladie professionnelle",
+    "03": "Accident du travail",
+    "04": "Accident de trajet",
+    "05": "Maternit\u00e9",
+    "06": "Paternit\u00e9",
+    "07": "Adoption",
+    "10": "Activit\u00e9 partielle",
+    "13": "Cong\u00e9 sans solde",
+    "14": "Cong\u00e9 sabbatique",
+    "15": "Cong\u00e9 parental",
+    "17": "\u00c9v\u00e9nement familial",
+    "19": "Gr\u00e8ve",
+    "20": "Temps partiel th\u00e9rapeutique",
+    "501": "Cong\u00e9 divers non r\u00e9mun\u00e9r\u00e9",
+  };
+
+  var COMPLEXITY_WEIGHTS = {
+    "bulletins": 1,
+    "entries": 3,
+    "exits": 3,
+    "absence_events": 2,
+    "dsn_anomalies": 5,
+  };
+
+  var COMPLEXITY_LABELS = {
+    "bulletins": "Bulletins",
+    "entries": "Entr\u00e9es",
+    "exits": "Sorties",
+    "absence_events": "Absences",
+    "dsn_anomalies": "Anomalies DSN",
+  };
+
   var MONTH_NAMES = [
     "Janvier", "F\u00e9vrier", "Mars", "Avril", "Mai", "Juin",
     "Juillet", "Ao\u00fbt", "Septembre", "Octobre", "Novembre", "D\u00e9cembre",
@@ -87,6 +145,35 @@
   var $extNetPaid = document.getElementById("ext-net-paid");
   var $extPas = document.getElementById("ext-pas");
   var $extGross = document.getElementById("ext-gross");
+
+  // Social analysis
+  var $saEffectif = document.getElementById("sa-effectif");
+  var $saEntrees = document.getElementById("sa-entrees");
+  var $saSorties = document.getElementById("sa-sorties");
+  var $saStagiaires = document.getElementById("sa-stagiaires");
+  var $saCadre = document.getElementById("sa-cadre");
+  var $saNonCadre = document.getElementById("sa-non-cadre");
+  var $saTableContracts = document.getElementById("sa-table-contracts");
+  var $saTableExitReasons = document.getElementById("sa-table-exit-reasons");
+  var $saAbsEmployees = document.getElementById("sa-abs-employees");
+  var $saAbsEvents = document.getElementById("sa-abs-events");
+  var $saTableAbsences = document.getElementById("sa-table-absences");
+  var $saNetVerse = document.getElementById("sa-net-verse");
+  var $saNetFiscal = document.getElementById("sa-net-fiscal");
+  var $saPas = document.getElementById("sa-pas");
+  var $saAlertsSection = document.getElementById("sa-alerts-section");
+  var $saAlertsCount = document.getElementById("sa-alerts-count");
+  var $saAlertsList = document.getElementById("sa-alerts-list");
+
+  // Payroll tracking
+  var $ptBulletins = document.getElementById("pt-bulletins");
+  var $ptEntries = document.getElementById("pt-entries");
+  var $ptExits = document.getElementById("pt-exits");
+  var $ptAbsences = document.getElementById("pt-absences");
+  var $ptExceptional = document.getElementById("pt-exceptional");
+  var $ptAnomalies = document.getElementById("pt-anomalies");
+  var $ptScoreValue = document.getElementById("pt-score-value");
+  var $ptScoreInputs = document.getElementById("pt-score-inputs");
 
   // ── Formatting helpers ───────────────────────────────────
 
@@ -207,6 +294,18 @@
     renderAmounts(amounts);
     renderExtras(extras);
     renderWarnings(quality);
+
+    var sa, pt;
+    if (state.scope === "global") {
+      sa = d.global_social_analysis;
+      pt = d.global_payroll_tracking;
+    } else {
+      var activeEst = d.establishments[state.activeEstIdx];
+      sa = activeEst.social_analysis;
+      pt = activeEst.payroll_tracking;
+    }
+    renderSocialAnalysis(sa);
+    renderPayrollTracking(pt);
   }
 
   function renderHeader(d) {
@@ -356,6 +455,112 @@
       li.textContent = w;
       $warningsList.appendChild(li);
     });
+  }
+
+  // ── Social analysis rendering ──────────────────────────────
+
+  function renderSocialAnalysis(sa) {
+    if (!sa) return;
+
+    $saEffectif.textContent = sa.effectif;
+    $saEntrees.textContent = sa.entrees;
+    $saSorties.textContent = sa.sorties;
+    $saStagiaires.textContent = sa.stagiaires;
+    $saCadre.textContent = sa.cadre_count;
+    $saNonCadre.textContent = sa.non_cadre_count;
+
+    // Contracts table
+    renderCodeTable($saTableContracts, sa.contracts_by_code, CONTRACT_LABELS);
+
+    // Exit reasons table
+    renderCodeTable($saTableExitReasons, sa.exit_reasons_by_code, EXIT_REASON_LABELS);
+
+    // Absences
+    $saAbsEmployees.textContent = sa.absences_employees_count;
+    $saAbsEvents.textContent = sa.absences_events_count;
+    renderCodeCountTable($saTableAbsences, sa.absences_by_code, ABSENCE_MOTIF_LABELS);
+
+    // Remuneration
+    $saNetVerse.textContent = formatAmount(sa.net_verse_total);
+    $saNetFiscal.textContent = formatAmount(sa.net_fiscal_total);
+    $saPas.textContent = formatAmount(sa.pas_total);
+
+    // Quality alerts
+    var alerts = sa.quality_alerts || [];
+    if (alerts.length === 0) {
+      $saAlertsSection.hidden = true;
+    } else {
+      $saAlertsSection.hidden = false;
+      $saAlertsCount.textContent = sa.quality_alerts_count;
+      $saAlertsList.innerHTML = "";
+      alerts.forEach(function (a) {
+        var li = document.createElement("li");
+        li.textContent = a;
+        $saAlertsList.appendChild(li);
+      });
+    }
+  }
+
+  function renderCodeTable(tbody, codeData, labelMap) {
+    var codes = Object.keys(codeData || {});
+    if (codes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" class="data-table__empty">Aucune donn\u00e9e</td></tr>';
+      return;
+    }
+    codes.sort();
+    tbody.innerHTML = codes.map(function (code) {
+      var label = labelMap[code] || code;
+      return '<tr>'
+        + '<td class="mono">' + escapeHtml(code) + '</td>'
+        + '<td>' + escapeHtml(label) + '</td>'
+        + '<td class="mono">' + codeData[code] + '</td>'
+        + '</tr>';
+    }).join("");
+  }
+
+  function renderCodeCountTable(tbody, codeData, labelMap) {
+    var codes = Object.keys(codeData || {});
+    if (codes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="2" class="data-table__empty">Aucune donn\u00e9e</td></tr>';
+      return;
+    }
+    codes.sort();
+    tbody.innerHTML = codes.map(function (code) {
+      var label = labelMap[code] || code;
+      return '<tr>'
+        + '<td>' + escapeHtml(label) + ' <span class="mono">(' + escapeHtml(code) + ')</span></td>'
+        + '<td class="mono">' + codeData[code] + '</td>'
+        + '</tr>';
+    }).join("");
+  }
+
+  // ── Payroll tracking rendering ─────────────────────────────
+
+  function renderPayrollTracking(pt) {
+    if (!pt) return;
+
+    $ptBulletins.textContent = pt.bulletins;
+    $ptEntries.textContent = pt.billable_entries;
+    $ptExits.textContent = pt.billable_exits;
+    $ptAbsences.textContent = pt.billable_absence_events;
+    $ptExceptional.textContent = pt.exceptional_events_count;
+    $ptAnomalies.textContent = pt.dsn_anomalies_count;
+
+    $ptScoreValue.textContent = pt.complexity_score;
+
+    var inputs = pt.complexity_inputs || {};
+    var keys = ["bulletins", "entries", "exits", "absence_events", "dsn_anomalies"];
+    $ptScoreInputs.innerHTML = keys.map(function (key) {
+      var val = inputs[key] || 0;
+      var weight = COMPLEXITY_WEIGHTS[key] || 0;
+      var label = COMPLEXITY_LABELS[key] || key;
+      return '<tr>'
+        + '<td>' + escapeHtml(label) + '</td>'
+        + '<td class="mono">' + val + '</td>'
+        + '<td class="mono">\u00d7' + weight + '</td>'
+        + '<td class="mono">' + (val * weight) + '</td>'
+        + '</tr>';
+    }).join("");
   }
 
   // ── Client-side file validation ──────────────────────────

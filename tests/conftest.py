@@ -62,3 +62,25 @@ def missing_contract_fields_text(missing_contract_fields_path: Path) -> str:
 @pytest.fixture
 def with_s54_blocks_text(with_s54_blocks_path: Path) -> str:
     return with_s54_blocks_path.read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def with_absences_path() -> Path:
+    return FIXTURES_DIR / "with_absences.dsn"
+
+
+@pytest.fixture
+def with_absences_text(with_absences_path: Path) -> str:
+    return with_absences_path.read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def with_unknown_exit_and_absence_codes_path() -> Path:
+    return FIXTURES_DIR / "with_unknown_exit_and_absence_codes.dsn"
+
+
+@pytest.fixture
+def with_unknown_exit_and_absence_codes_text(
+    with_unknown_exit_and_absence_codes_path: Path,
+) -> str:
+    return with_unknown_exit_and_absence_codes_path.read_text(encoding="utf-8")

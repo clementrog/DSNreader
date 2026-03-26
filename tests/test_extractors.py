@@ -9,7 +9,7 @@ from decimal import Decimal
 import pytest
 
 from dsn_extractor.extractors import _sum_decimal, extract
-from dsn_extractor.models import DSNOutput
+from dsn_extractor.models import DSNOutput, PayrollTracking, SocialAnalysis
 from dsn_extractor.parser import parse
 
 
@@ -64,6 +64,7 @@ def _make_employee(
     ccn: str | None = None,
     contract_end: str | None = None,
     rupture: str | None = None,
+    absences: list[str] | None = None,
 ) -> str:
     lines = [
         f"S21.G00.30.001,'{name}'",
@@ -82,6 +83,11 @@ def _make_employee(
         f"S21.G00.50.004,'{net_paid}'",
         f"S21.G00.50.009,'{pas}'",
     ]
+    if absences:
+        for motif_code in absences:
+            lines.append(f"S21.G00.65.001,'{motif_code}'")
+            lines.append(f"S21.G00.65.002,'01012025'")
+            lines.append(f"S21.G00.65.003,'15012025'")
     if contract_end is not None:
         lines.append(f"S21.G00.62.001,'{contract_end}'")
         if rupture is not None:
@@ -930,3 +936,625 @@ class TestGlobalAggregation:
             for k, v in e.counts.employees_by_retirement_category_code.items():
                 merged[k] = merged.get(k, 0) + v
         assert out.global_counts.employees_by_retirement_category_code == merged
+
+    def test_global_new_count_fields_match_sum(self, multi_establishment_text: str) -> None:
+        out = _extract_fixture(multi_establishment_text)
+        g = out.global_counts
+        assert g.absences_employees_count == sum(
+            e.counts.absences_employees_count for e in out.establishments
+        )
+        assert g.absences_events_count == sum(
+            e.counts.absences_events_count for e in out.establishments
+        )
+        for field in (
+            "employees_by_contract_nature_label",
+            "exit_reasons_by_code",
+            "exit_reasons_by_label",
+            "absences_by_code",
+        ):
+            merged: dict[str, int] = {}
+            for e in out.establishments:
+                for k, v in getattr(e.counts, field).items():
+                    merged[k] = merged.get(k, 0) + v
+            assert getattr(g, field) == merged, f"Mismatch on {field}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Contract nature labels
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestContractNatureLabels:
+    def test_known_code_has_label(self, single_establishment_text: str) -> None:
+        out = _extract_fixture(single_establishment_text)
+        labels = out.establishments[0].counts.employees_by_contract_nature_label
+        assert "cdi_prive" in labels
+        assert "cdd_prive" in labels
+        assert "convention_stage" in labels
+
+    def test_unknown_code_preserved_in_label_dict(self) -> None:
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(nature="77")
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        # Unknown code passes through as raw value in label dict
+        assert "77" in out.establishments[0].counts.employees_by_contract_nature_label
+
+    def test_all_enum_codes_no_unknown_warning(self) -> None:
+        """Every code in CONTRACT_NATURE_LABELS must not generate a warning."""
+        from dsn_extractor.enums import CONTRACT_NATURE_LABELS
+
+        for code in CONTRACT_NATURE_LABELS:
+            text = (
+                MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+                + _make_employee(nature=code)
+                + FOOTER
+            )
+            out = _extract_fixture(text)
+            contract_warnings = [
+                w for w in out.global_quality.warnings if "Unknown contract nature" in w
+            ]
+            assert contract_warnings == [], f"Code {code!r} wrongly flagged as unknown"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Exit reasons
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestExitReasons:
+    def test_exit_reason_by_code(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        # MARTIN exits with rupture code '059' (demission)
+        assert out.establishments[0].counts.exit_reasons_by_code == {"059": 1}
+
+    def test_exit_reason_by_label(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        assert out.establishments[0].counts.exit_reasons_by_label == {"demission": 1}
+
+    def test_unknown_exit_reason_preserved(
+        self, with_unknown_exit_and_absence_codes_text: str
+    ) -> None:
+        out = _extract_fixture(with_unknown_exit_and_absence_codes_text)
+        assert "999" in out.establishments[0].counts.exit_reasons_by_code
+        assert any(
+            "Unknown contract end reason code: '999'" in w
+            for w in out.global_quality.warnings
+        )
+
+    def test_no_exit_reason_empty_dict(self) -> None:
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee()
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.exit_reasons_by_code == {}
+        assert out.establishments[0].counts.exit_reasons_by_label == {}
+
+    def test_exit_099_still_counted_in_reasons(self) -> None:
+        """Rupture code 099 is excluded from exiting_employees but included in exit_reasons."""
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(contract_end="15012025", rupture="099")
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.exiting_employees_in_month == 0
+        assert out.establishments[0].counts.exit_reasons_by_code == {"099": 1}
+
+    def test_all_enum_exit_codes_no_unknown_warning(self) -> None:
+        from dsn_extractor.enums import CONTRACT_END_REASON_LABELS
+
+        for code in CONTRACT_END_REASON_LABELS:
+            text = (
+                MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+                + _make_employee(contract_end="15012025", rupture=code)
+                + FOOTER
+            )
+            out = _extract_fixture(text)
+            reason_warnings = [
+                w for w in out.global_quality.warnings if "Unknown contract end reason" in w
+            ]
+            assert reason_warnings == [], f"Code {code!r} wrongly flagged as unknown"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Absences
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestAbsences:
+    def test_absences_events_count(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        # DUPONT: 2 absences (01, 03), MARTIN: 1 absence (05)
+        assert out.establishments[0].counts.absences_events_count == 3
+
+    def test_absences_employees_count(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        assert out.establishments[0].counts.absences_employees_count == 2
+
+    def test_absences_by_code(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        assert out.establishments[0].counts.absences_by_code == {
+            "01": 1,
+            "03": 1,
+            "05": 1,
+        }
+
+    def test_no_absences_zero_counts(self, single_establishment_text: str) -> None:
+        out = _extract_fixture(single_establishment_text)
+        assert out.establishments[0].counts.absences_events_count == 0
+        assert out.establishments[0].counts.absences_employees_count == 0
+        assert out.establishments[0].counts.absences_by_code == {}
+
+    def test_multi_absence_per_employee(self) -> None:
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(name="A", absences=["01", "01", "03"])
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.absences_events_count == 3
+        assert out.establishments[0].counts.absences_employees_count == 1
+        assert out.establishments[0].counts.absences_by_code == {"01": 2, "03": 1}
+
+    def test_unknown_absence_code_preserved(
+        self, with_unknown_exit_and_absence_codes_text: str
+    ) -> None:
+        out = _extract_fixture(with_unknown_exit_and_absence_codes_text)
+        assert "88" in out.establishments[0].counts.absences_by_code
+        assert any(
+            "Unknown absence motif code: '88'" in w
+            for w in out.global_quality.warnings
+        )
+
+    def test_all_enum_absence_codes_no_unknown_warning(self) -> None:
+        from dsn_extractor.enums import ABSENCE_MOTIF_LABELS
+
+        for code in ABSENCE_MOTIF_LABELS:
+            text = (
+                MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+                + _make_employee(absences=[code])
+                + FOOTER
+            )
+            out = _extract_fixture(text)
+            absence_warnings = [
+                w for w in out.global_quality.warnings if "Unknown absence motif" in w
+            ]
+            assert absence_warnings == [], f"Code {code!r} wrongly flagged as unknown"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Social analysis composition
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSocialAnalysis:
+    def test_effectif(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        sa = out.establishments[0].social_analysis
+        assert sa.effectif == out.establishments[0].counts.employee_blocks_count
+
+    def test_entrees(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        sa = out.establishments[0].social_analysis
+        assert sa.entrees == out.establishments[0].counts.new_employees_in_month
+
+    def test_sorties(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        sa = out.establishments[0].social_analysis
+        assert sa.sorties == out.establishments[0].counts.exiting_employees_in_month
+
+    def test_cadre_count(self) -> None:
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(name="A", ret_cat="01")
+            + _make_employee(name="B", ret_cat="02")  # extension_cadre
+            + _make_employee(name="C", ret_cat="04")  # non_cadre
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        sa = out.establishments[0].social_analysis
+        assert sa.cadre_count == 2  # cadre + extension_cadre
+        assert sa.non_cadre_count == 1
+
+    def test_contracts_by_code_and_label(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        sa = out.establishments[0].social_analysis
+        assert sa.contracts_by_code == out.establishments[0].counts.employees_by_contract_nature_code
+        assert sa.contracts_by_label == out.establishments[0].counts.employees_by_contract_nature_label
+
+    def test_absences_surfaced(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        sa = out.establishments[0].social_analysis
+        assert sa.absences_events_count == 3
+        assert sa.absences_employees_count == 2
+        assert sa.absences_by_code == {"01": 1, "03": 1, "05": 1}
+
+    def test_net_verse_net_fiscal_pas(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        sa = out.establishments[0].social_analysis
+        extras = out.establishments[0].extras
+        assert sa.net_verse_total == extras.net_paid_sum
+        assert sa.net_fiscal_total == extras.net_fiscal_sum
+        assert sa.pas_total == extras.pas_sum
+
+    def test_quality_alerts(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        sa = out.establishments[0].social_analysis
+        assert sa.quality_alerts_count == len(out.establishments[0].quality.warnings)
+        assert sa.quality_alerts == out.establishments[0].quality.warnings
+
+    def test_global_social_analysis_effectif(self, multi_establishment_text: str) -> None:
+        out = _extract_fixture(multi_establishment_text)
+        gsa = out.global_social_analysis
+        assert gsa.effectif == out.global_counts.employee_blocks_count
+
+    def test_global_numeric_fields_sum_of_establishments(
+        self, multi_establishment_text: str
+    ) -> None:
+        out = _extract_fixture(multi_establishment_text)
+        gsa = out.global_social_analysis
+        assert gsa.effectif == sum(e.social_analysis.effectif for e in out.establishments)
+        assert gsa.entrees == sum(e.social_analysis.entrees for e in out.establishments)
+        assert gsa.sorties == sum(e.social_analysis.sorties for e in out.establishments)
+        assert gsa.stagiaires == sum(e.social_analysis.stagiaires for e in out.establishments)
+        assert gsa.absences_events_count == sum(
+            e.social_analysis.absences_events_count for e in out.establishments
+        )
+        assert gsa.absences_employees_count == sum(
+            e.social_analysis.absences_employees_count for e in out.establishments
+        )
+
+    def test_global_quality_alerts_gte_sum_of_establishment_alerts(
+        self, multi_establishment_text: str
+    ) -> None:
+        out = _extract_fixture(multi_establishment_text)
+        gsa = out.global_social_analysis
+        est_sum = sum(e.social_analysis.quality_alerts_count for e in out.establishments)
+        assert gsa.quality_alerts_count >= est_sum
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Payroll tracking composition
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestPayrollTracking:
+    def test_bulletins(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        pt = out.establishments[0].payroll_tracking
+        assert pt.bulletins == out.establishments[0].counts.employee_blocks_count
+
+    def test_billable_entries_exits(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        pt = out.establishments[0].payroll_tracking
+        c = out.establishments[0].counts
+        assert pt.billable_entries == c.new_employees_in_month
+        assert pt.billable_exits == c.exiting_employees_in_month
+
+    def test_billable_absence_events(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        pt = out.establishments[0].payroll_tracking
+        assert pt.billable_absence_events == 3
+
+    def test_exceptional_events_count(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        pt = out.establishments[0].payroll_tracking
+        # exceptional = exits + absence_events
+        c = out.establishments[0].counts
+        assert pt.exceptional_events_count == c.exiting_employees_in_month + c.absences_events_count
+
+    def test_dsn_anomalies_count(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        pt = out.establishments[0].payroll_tracking
+        assert pt.dsn_anomalies_count == len(out.establishments[0].quality.warnings)
+
+    def test_complexity_score_deterministic(self, with_absences_text: str) -> None:
+        out1 = _extract_fixture(with_absences_text)
+        out2 = _extract_fixture(with_absences_text)
+        assert out1.establishments[0].payroll_tracking.complexity_score == (
+            out2.establishments[0].payroll_tracking.complexity_score
+        )
+
+    def test_complexity_score_formula(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        pt = out.establishments[0].payroll_tracking
+        inputs = pt.complexity_inputs
+        expected = (
+            1 * inputs["bulletins"]
+            + 3 * inputs["entries"]
+            + 3 * inputs["exits"]
+            + 2 * inputs["absence_events"]
+            + 5 * inputs["dsn_anomalies"]
+        )
+        assert pt.complexity_score == expected
+
+    def test_complexity_inputs_transparency(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        pt = out.establishments[0].payroll_tracking
+        assert pt.complexity_inputs["bulletins"] == pt.bulletins
+        assert pt.complexity_inputs["entries"] == pt.billable_entries
+        assert pt.complexity_inputs["exits"] == pt.billable_exits
+        assert pt.complexity_inputs["absence_events"] == pt.billable_absence_events
+        assert pt.complexity_inputs["dsn_anomalies"] == pt.dsn_anomalies_count
+
+    def test_global_complexity_score_from_global_inputs(
+        self, multi_establishment_text: str
+    ) -> None:
+        out = _extract_fixture(multi_establishment_text)
+        gpt = out.global_payroll_tracking
+        inputs = gpt.complexity_inputs
+        expected = (
+            1 * inputs["bulletins"]
+            + 3 * inputs["entries"]
+            + 3 * inputs["exits"]
+            + 2 * inputs["absence_events"]
+            + 5 * inputs["dsn_anomalies"]
+        )
+        assert gpt.complexity_score == expected
+
+    def test_global_score_gt_sum_when_global_only_warnings(
+        self, multi_establishment_text: str
+    ) -> None:
+        """Multi-establishment emits 'Multiple establishments detected' at orchestrator level.
+        This warning is in global_quality but not in any per-establishment quality,
+        so global anomalies > sum(est anomalies) and global score > sum(est scores)."""
+        out = _extract_fixture(multi_establishment_text)
+        gpt = out.global_payroll_tracking
+        est_score_sum = sum(e.payroll_tracking.complexity_score for e in out.establishments)
+        assert gpt.complexity_score > est_score_sum
+
+    def test_global_score_eq_sum_when_no_global_only_warnings(self) -> None:
+        """Single establishment with no parser-level warnings:
+        global score == establishment score."""
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(absences=["01"])
+            + "S21.G00.54.001,'17'\nS21.G00.54.002,'100.00'\n"
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        gpt = out.global_payroll_tracking
+        est_score = out.establishments[0].payroll_tracking.complexity_score
+        assert gpt.complexity_score == est_score
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Enum warning consistency
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestEnumWarningConsistency:
+    def test_known_contract_code_80_no_warning(self) -> None:
+        """Code 80 (mandat_social) must produce a label and no unknown warning."""
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(nature="80")
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert "mandat_social" in out.establishments[0].counts.employees_by_contract_nature_label
+        contract_warnings = [
+            w for w in out.global_quality.warnings if "Unknown contract nature" in w
+        ]
+        assert contract_warnings == []
+
+    def test_known_exit_reason_035_no_warning(self) -> None:
+        """Code 035 (fin_periode_essai_initiative_salarie) must produce label, no warning."""
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(contract_end="15012025", rupture="035")
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.exit_reasons_by_label == {
+            "fin_periode_essai_initiative_salarie": 1,
+        }
+        reason_warnings = [
+            w for w in out.global_quality.warnings if "Unknown contract end reason" in w
+        ]
+        assert reason_warnings == []
+
+    def test_known_absence_code_501_no_warning(self) -> None:
+        """Code 501 (conge_divers_non_remunere) must produce label, no warning."""
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(absences=["501"])
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.absences_by_code == {"501": 1}
+        absence_warnings = [
+            w for w in out.global_quality.warnings if "Unknown absence motif" in w
+        ]
+        assert absence_warnings == []
+
+    def test_repeated_absence_501_no_warnings(self) -> None:
+        """Multiple occurrences of code 501 must not emit any unknown warnings."""
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(name="A", absences=["501", "501"])
+            + _make_employee(name="B", absences=["501"])
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.absences_by_code == {"501": 3}
+        absence_warnings = [
+            w for w in out.global_quality.warnings if "Unknown absence motif" in w
+        ]
+        assert absence_warnings == []
+
+    def test_known_retirement_codes_no_warning(self) -> None:
+        from dsn_extractor.enums import RETIREMENT_CATEGORY_LABELS
+
+        for code in RETIREMENT_CATEGORY_LABELS:
+            text = (
+                MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+                + _make_employee(ret_cat=code)
+                + FOOTER
+            )
+            out = _extract_fixture(text)
+            ret_warnings = [
+                w for w in out.global_quality.warnings if "Unknown retirement" in w
+            ]
+            assert ret_warnings == [], f"Code {code!r} wrongly flagged as unknown"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Idempotency + no-aliasing
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestExtractorIdempotency:
+    def test_repeated_extraction_identical(self, with_absences_text: str) -> None:
+        parsed = parse(with_absences_text)
+        out1 = extract(parsed, "test.dsn")
+        out2 = extract(parsed, "test.dsn")
+        assert out1.model_dump() == out2.model_dump()
+
+    def test_parsed_warnings_not_mutated(self, with_absences_text: str) -> None:
+        parsed = parse(with_absences_text)
+        original = list(parsed.warnings)
+        extract(parsed, "test.dsn")
+        assert parsed.warnings == original
+
+    def test_parsed_records_not_mutated(self, with_absences_text: str) -> None:
+        parsed = parse(with_absences_text)
+        count_before = len(parsed.all_records)
+        extract(parsed, "test.dsn")
+        assert len(parsed.all_records) == count_before
+
+    def test_parsed_establishment_blocks_not_mutated(self, with_absences_text: str) -> None:
+        parsed = parse(with_absences_text)
+        snapshots = [
+            (len(est.records), len(est.employee_blocks))
+            for est in parsed.establishments
+        ]
+        extract(parsed, "test.dsn")
+        for i, est in enumerate(parsed.establishments):
+            assert (len(est.records), len(est.employee_blocks)) == snapshots[i]
+
+
+class TestNoAliasing:
+    def test_social_analysis_to_counts(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        est = out.establishments[0]
+        original_contracts = dict(est.counts.employees_by_contract_nature_code)
+        original_warnings = list(est.quality.warnings)
+
+        est.social_analysis.contracts_by_code["XX"] = 99
+        est.social_analysis.absences_by_code["XX"] = 1
+        est.social_analysis.exit_reasons_by_code["XX"] = 1
+        est.social_analysis.quality_alerts.append("bogus")
+
+        assert est.counts.employees_by_contract_nature_code == original_contracts
+        assert est.counts.absences_by_code != {"XX": 1}  # XX was not in original
+        assert "XX" not in est.counts.absences_by_code
+        assert "XX" not in est.counts.exit_reasons_by_code
+        assert est.quality.warnings == original_warnings
+
+    def test_payroll_tracking_to_counts(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        est = out.establishments[0]
+        original_warnings = list(est.quality.warnings)
+
+        est.payroll_tracking.complexity_inputs["XX"] = 99
+
+        assert "XX" not in est.counts.__dict__.get("_unused", {})
+        assert est.quality.warnings == original_warnings
+
+    def test_establishment_to_global(self, multi_establishment_text: str) -> None:
+        out = _extract_fixture(multi_establishment_text)
+        global_contracts = dict(out.global_social_analysis.contracts_by_code)
+        global_alerts = list(out.global_social_analysis.quality_alerts)
+        global_inputs = dict(out.global_payroll_tracking.complexity_inputs)
+
+        out.establishments[0].social_analysis.contracts_by_code["XX"] = 99
+        out.establishments[0].social_analysis.quality_alerts.append("bogus")
+        out.establishments[0].payroll_tracking.complexity_inputs["XX"] = 99
+
+        assert out.global_social_analysis.contracts_by_code == global_contracts
+        assert out.global_social_analysis.quality_alerts == global_alerts
+        assert out.global_payroll_tracking.complexity_inputs == global_inputs
+
+    def test_global_sections_to_global_counts(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        original_code = dict(out.global_counts.employees_by_contract_nature_code)
+
+        out.global_social_analysis.contracts_by_code["XX"] = 99
+        out.global_payroll_tracking.complexity_inputs["XX"] = 99
+
+        assert out.global_counts.employees_by_contract_nature_code == original_code
+
+    def test_sibling_establishments(self, multi_establishment_text: str) -> None:
+        out = _extract_fixture(multi_establishment_text)
+        est1_contracts = dict(out.establishments[1].social_analysis.contracts_by_code)
+
+        out.establishments[0].social_analysis.contracts_by_code["XX"] = 99
+
+        assert out.establishments[1].social_analysis.contracts_by_code == est1_contracts
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Model defaults / schema validation
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestModelDefaults:
+    def test_social_analysis_default(self) -> None:
+        from dsn_extractor.models import SocialAnalysis
+
+        sa = SocialAnalysis()
+        assert sa.effectif == 0
+        assert sa.contracts_by_code == {}
+        assert sa.quality_alerts == []
+        assert sa.net_verse_total is None
+
+    def test_payroll_tracking_default(self) -> None:
+        from dsn_extractor.models import PayrollTracking
+
+        pt = PayrollTracking()
+        assert pt.bulletins == 0
+        assert pt.complexity_score == 0
+        assert pt.complexity_inputs == {}
+
+    def test_establishment_counts_new_fields_default(self) -> None:
+        from dsn_extractor.models import EstablishmentCounts
+
+        c = EstablishmentCounts()
+        assert c.employees_by_contract_nature_label == {}
+        assert c.exit_reasons_by_code == {}
+        assert c.exit_reasons_by_label == {}
+        assert c.absences_employees_count == 0
+        assert c.absences_events_count == 0
+        assert c.absences_by_code == {}
+
+    def test_dsn_output_default_includes_new_sections(self) -> None:
+        out = DSNOutput()
+        assert isinstance(out.global_social_analysis, SocialAnalysis)
+        assert isinstance(out.global_payroll_tracking, PayrollTracking)
+
+    def test_establishment_default_includes_new_sections(self) -> None:
+        from dsn_extractor.models import Establishment
+
+        est = Establishment()
+        assert isinstance(est.social_analysis, SocialAnalysis)
+        assert isinstance(est.payroll_tracking, PayrollTracking)
+
+    def test_social_analysis_forbids_extra_fields(self) -> None:
+        from dsn_extractor.models import SocialAnalysis
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            SocialAnalysis(bogus=1)  # type: ignore[call-arg]
+
+    def test_payroll_tracking_forbids_extra_fields(self) -> None:
+        from dsn_extractor.models import PayrollTracking
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PayrollTracking(bogus=1)  # type: ignore[call-arg]

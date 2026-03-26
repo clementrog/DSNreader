@@ -8,6 +8,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from dsn_extractor.extractors import extract
+from dsn_extractor.models import DSNOutput
 from dsn_extractor.parser import parse
 from server.app import app
 
@@ -36,7 +37,8 @@ class TestExtractSuccess:
         assert r.status_code == 200
         body = r.json()
         for key in ("source_file", "declaration", "company", "establishments",
-                     "global_counts", "global_amounts", "global_extras", "global_quality"):
+                     "global_counts", "global_amounts", "global_extras", "global_quality",
+                     "global_social_analysis", "global_payroll_tracking"):
             assert key in body
 
     def test_multi_establishment(self):
@@ -216,3 +218,60 @@ class TestCORS:
         assert r.status_code == 200
         assert r.headers.get("access-control-allow-origin") == "*"
         assert "POST" in r.headers.get("access-control-allow-methods", "").upper()
+
+
+# ── Response schema (new sections) ────────────────────────────
+
+
+class TestResponseSchema:
+    def test_response_contains_new_top_level_keys(self):
+        r = _upload("single_establishment.dsn")
+        body = r.json()
+        assert "global_social_analysis" in body
+        assert "global_payroll_tracking" in body
+
+    def test_response_establishment_contains_new_keys(self):
+        r = _upload("single_establishment.dsn")
+        body = r.json()
+        for est in body["establishments"]:
+            assert "social_analysis" in est
+            assert "payroll_tracking" in est
+
+    def test_response_social_analysis_shape(self):
+        r = _upload("single_establishment.dsn")
+        sa = r.json()["global_social_analysis"]
+        assert isinstance(sa["effectif"], int)
+        assert isinstance(sa["entrees"], int)
+        assert isinstance(sa["sorties"], int)
+        assert isinstance(sa["stagiaires"], int)
+        assert isinstance(sa["cadre_count"], int)
+        assert isinstance(sa["non_cadre_count"], int)
+        assert isinstance(sa["contracts_by_code"], dict)
+        assert isinstance(sa["contracts_by_label"], dict)
+        assert isinstance(sa["exit_reasons_by_code"], dict)
+        assert isinstance(sa["exit_reasons_by_label"], dict)
+        assert isinstance(sa["absences_by_code"], dict)
+        assert isinstance(sa["quality_alerts"], list)
+        assert isinstance(sa["quality_alerts_count"], int)
+        # Decimal fields serialized as strings or null
+        for field in ("net_verse_total", "net_fiscal_total", "pas_total"):
+            assert sa[field] is None or isinstance(sa[field], str)
+
+    def test_response_payroll_tracking_shape(self):
+        r = _upload("single_establishment.dsn")
+        pt = r.json()["global_payroll_tracking"]
+        assert isinstance(pt["bulletins"], int)
+        assert isinstance(pt["billable_entries"], int)
+        assert isinstance(pt["billable_exits"], int)
+        assert isinstance(pt["billable_absence_events"], int)
+        assert isinstance(pt["exceptional_events_count"], int)
+        assert isinstance(pt["dsn_anomalies_count"], int)
+        assert isinstance(pt["complexity_score"], int)
+        assert isinstance(pt["complexity_inputs"], dict)
+
+    def test_response_validates_against_model(self):
+        """Full API response round-trips through DSNOutput model validation."""
+        r = _upload("single_establishment.dsn")
+        assert r.status_code == 200
+        # This will raise ValidationError if schema doesn't match
+        DSNOutput.model_validate(r.json())

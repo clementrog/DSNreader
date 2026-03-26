@@ -69,8 +69,14 @@ class EstablishmentCounts(BaseModel):
     employees_by_retirement_category_label: dict[str, int] = Field(default_factory=dict)
     employees_by_conventional_status_code: dict[str, int] = Field(default_factory=dict)
     employees_by_contract_nature_code: dict[str, int] = Field(default_factory=dict)
+    employees_by_contract_nature_label: dict[str, int] = Field(default_factory=dict)
     new_employees_in_month: int = 0
     exiting_employees_in_month: int = 0
+    exit_reasons_by_code: dict[str, int] = Field(default_factory=dict)
+    exit_reasons_by_label: dict[str, int] = Field(default_factory=dict)
+    absences_employees_count: int = 0
+    absences_events_count: int = 0
+    absences_by_code: dict[str, int] = Field(default_factory=dict)
 
 
 class EstablishmentAmounts(BaseModel):
@@ -96,6 +102,42 @@ class Quality(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class SocialAnalysis(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    effectif: int = 0
+    entrees: int = 0
+    sorties: int = 0
+    stagiaires: int = 0
+    cadre_count: int = 0
+    non_cadre_count: int = 0
+    contracts_by_code: dict[str, int] = Field(default_factory=dict)
+    contracts_by_label: dict[str, int] = Field(default_factory=dict)
+    exit_reasons_by_code: dict[str, int] = Field(default_factory=dict)
+    exit_reasons_by_label: dict[str, int] = Field(default_factory=dict)
+    absences_employees_count: int = 0
+    absences_events_count: int = 0
+    absences_by_code: dict[str, int] = Field(default_factory=dict)
+    net_verse_total: Decimal | None = None
+    net_fiscal_total: Decimal | None = None
+    pas_total: Decimal | None = None
+    quality_alerts_count: int = 0
+    quality_alerts: list[str] = Field(default_factory=list)
+
+
+class PayrollTracking(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bulletins: int = 0
+    billable_entries: int = 0
+    billable_exits: int = 0
+    billable_absence_events: int = 0
+    exceptional_events_count: int = 0
+    dsn_anomalies_count: int = 0
+    complexity_score: int = 0
+    complexity_inputs: dict[str, int] = Field(default_factory=dict)
+
+
 class Establishment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -104,6 +146,8 @@ class Establishment(BaseModel):
     amounts: EstablishmentAmounts = Field(default_factory=EstablishmentAmounts)
     extras: EstablishmentExtras = Field(default_factory=EstablishmentExtras)
     quality: Quality = Field(default_factory=Quality)
+    social_analysis: SocialAnalysis = Field(default_factory=SocialAnalysis)
+    payroll_tracking: PayrollTracking = Field(default_factory=PayrollTracking)
 
 
 class DSNOutput(BaseModel):
@@ -117,3 +161,5 @@ class DSNOutput(BaseModel):
     global_amounts: EstablishmentAmounts = Field(default_factory=EstablishmentAmounts)
     global_extras: EstablishmentExtras = Field(default_factory=EstablishmentExtras)
     global_quality: Quality = Field(default_factory=Quality)
+    global_social_analysis: SocialAnalysis = Field(default_factory=SocialAnalysis)
+    global_payroll_tracking: PayrollTracking = Field(default_factory=PayrollTracking)

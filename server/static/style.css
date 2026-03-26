@@ -431,6 +431,10 @@ body[data-state="error"] #error-screen {
   overflow-y: auto;
 }
 
+.warnings-banner[hidden] {
+  display: none;
+}
+
 .warnings-banner__icon {
   color: var(--color-warning);
   flex-shrink: 0;
@@ -649,6 +653,69 @@ body[data-state="error"] #error-screen {
   color: #fff;
 }
 
+/* ── Dashboard sections (analyse sociale / tracking) ─────── */
+
+.dashboard-section {
+  margin-top: var(--sp-10);
+  padding-top: var(--sp-8);
+  border-top: 2px solid var(--color-border);
+}
+
+.dashboard-section__title {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--sp-6) 0;
+  letter-spacing: -0.01em;
+}
+
+.card-row--half {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.summary-card--compact {
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.summary-card--compact .summary-card__value {
+  font-size: var(--fs-lg);
+}
+
+/* Complexity score */
+.complexity-score {
+  font-family: var(--font-mono);
+  font-size: 48px;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-align: center;
+  padding: var(--sp-6) 0 var(--sp-2) 0;
+}
+
+.complexity-score__caption {
+  font-size: var(--fs-xs);
+  color: var(--color-text-tertiary);
+  text-align: center;
+  margin: 0;
+}
+
+/* Alerts list */
+.alerts-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--sp-2) 0 0 0;
+  font-size: var(--fs-sm);
+  color: var(--color-warning);
+}
+
+.alerts-list li {
+  padding: var(--sp-1) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.alerts-list li:last-child {
+  border-bottom: none;
+}
+
 /* ── Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 768px) {
@@ -661,6 +728,10 @@ body[data-state="error"] #error-screen {
   }
 
   .card-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .card-row--half {
     grid-template-columns: repeat(2, 1fr);
   }
 }

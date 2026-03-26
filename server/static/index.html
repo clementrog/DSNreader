@@ -179,6 +179,143 @@
       </div>
     </section>
 
+    <!-- ── Analyse sociale ──────────────────────────────────────── -->
+    <section class="dashboard-section" id="section-social">
+      <h2 class="dashboard-section__title">Analyse sociale</h2>
+
+      <div class="card-row">
+        <div class="summary-card">
+          <span class="summary-card__label">Effectif</span>
+          <span class="summary-card__value" id="sa-effectif">--</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card__label">Entr&#233;es</span>
+          <span class="summary-card__value" id="sa-entrees">--</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card__label">Sorties</span>
+          <span class="summary-card__value" id="sa-sorties">--</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card__label">Stagiaires</span>
+          <span class="summary-card__value" id="sa-stagiaires">--</span>
+        </div>
+      </div>
+
+      <div class="card-row card-row--half">
+        <div class="summary-card">
+          <span class="summary-card__label">Cadres</span>
+          <span class="summary-card__value" id="sa-cadre">--</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card__label">Non-cadres</span>
+          <span class="summary-card__value" id="sa-non-cadre">--</span>
+        </div>
+      </div>
+
+      <div class="data-section">
+        <h3 class="data-section__title">Contrats</h3>
+        <table class="data-table">
+          <thead><tr><th>Code</th><th>Libell&#233;</th><th>Nombre</th></tr></thead>
+          <tbody id="sa-table-contracts"></tbody>
+        </table>
+      </div>
+
+      <div class="data-section">
+        <h3 class="data-section__title">Motifs de sortie</h3>
+        <table class="data-table">
+          <thead><tr><th>Code</th><th>Libell&#233;</th><th>Nombre</th></tr></thead>
+          <tbody id="sa-table-exit-reasons"></tbody>
+        </table>
+      </div>
+
+      <div class="data-section">
+        <h3 class="data-section__title">Absences / suspensions</h3>
+        <div class="card-row card-row--half" style="margin-bottom: var(--sp-4);">
+          <div class="summary-card summary-card--compact">
+            <span class="summary-card__label">Salari&#233;s concern&#233;s</span>
+            <span class="summary-card__value" id="sa-abs-employees">--</span>
+          </div>
+          <div class="summary-card summary-card--compact">
+            <span class="summary-card__label">&#201;v&#233;nements</span>
+            <span class="summary-card__value" id="sa-abs-events">--</span>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Code motif</th><th>Nombre</th></tr></thead>
+          <tbody id="sa-table-absences"></tbody>
+        </table>
+      </div>
+
+      <div class="data-section">
+        <h3 class="data-section__title">R&#233;mun&#233;ration</h3>
+        <div class="kv-grid">
+          <div class="kv-row">
+            <span class="kv-row__label">Net vers&#233;</span>
+            <span class="kv-row__value" id="sa-net-verse">&mdash;</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-row__label">Net fiscal</span>
+            <span class="kv-row__value" id="sa-net-fiscal">&mdash;</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-row__label">PAS total</span>
+            <span class="kv-row__value" id="sa-pas">&mdash;</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="data-section" id="sa-alerts-section" hidden>
+        <h3 class="data-section__title">Alertes qualit&#233; (<span id="sa-alerts-count">0</span>)</h3>
+        <ul class="alerts-list" id="sa-alerts-list"></ul>
+      </div>
+    </section>
+
+    <!-- ── Tracking gestionnaire ─────────────────────────────────── -->
+    <section class="dashboard-section" id="section-tracking">
+      <h2 class="dashboard-section__title">Tracking gestionnaire</h2>
+
+      <div class="card-row">
+        <div class="summary-card">
+          <span class="summary-card__label">Bulletins</span>
+          <span class="summary-card__value" id="pt-bulletins">--</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card__label">Entr&#233;es facturables</span>
+          <span class="summary-card__value" id="pt-entries">--</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card__label">Sorties facturables</span>
+          <span class="summary-card__value" id="pt-exits">--</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card__label">Absences facturables</span>
+          <span class="summary-card__value" id="pt-absences">--</span>
+        </div>
+      </div>
+
+      <div class="card-row card-row--half">
+        <div class="summary-card">
+          <span class="summary-card__label">&#201;v&#233;nements exceptionnels</span>
+          <span class="summary-card__value" id="pt-exceptional">--</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-card__label">Anomalies DSN</span>
+          <span class="summary-card__value" id="pt-anomalies">--</span>
+        </div>
+      </div>
+
+      <div class="data-section">
+        <h3 class="data-section__title">Score de complexit&#233;</h3>
+        <div class="complexity-score" id="pt-score-value">0</div>
+        <p class="complexity-score__caption">Indicateur de charge de travail (non contractuel)</p>
+        <table class="data-table" style="margin-top: var(--sp-4);">
+          <thead><tr><th>Composante</th><th>Valeur</th><th>Poids</th><th>Points</th></tr></thead>
+          <tbody id="pt-score-inputs"></tbody>
+        </table>
+      </div>
+    </section>
+
   </main>
 
 </body>
