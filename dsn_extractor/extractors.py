@@ -64,9 +64,13 @@ def _sum_decimal(a: Decimal | None, b: Decimal | None) -> Decimal | None:
 
 
 def _employee_display_name(emp: EmployeeBlock) -> str:
-    """Format employee name as 'NOM Prénom' from DSN fields."""
-    nom = (_find_value(emp.records, "S21.G00.30.001") or "").strip()
-    prenom = (_find_value(emp.records, "S21.G00.30.002") or "").strip()
+    """Format employee name as 'NOM Prénom' from DSN fields.
+
+    Uses S21.G00.30.002 (nom de famille) and S21.G00.30.004 (prénoms).
+    Never reads S21.G00.30.001 (NIR) or S21.G00.30.018 (NTT).
+    """
+    nom = (_find_value(emp.records, "S21.G00.30.002") or "").strip()
+    prenom = (_find_value(emp.records, "S21.G00.30.004") or "").strip()
     if nom and prenom:
         return f"{nom} {prenom}"
     if nom:

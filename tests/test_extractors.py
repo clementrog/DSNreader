@@ -68,8 +68,8 @@ def _make_employee(
 ) -> str:
     lines = [
         f"S21.G00.30.001,'{name}'",
-        f"S21.G00.30.002,'{first}'",
-        f"S21.G00.30.004,'{birth}'",
+        f"S21.G00.30.002,'{name}'",
+        f"S21.G00.30.004,'{first}'",
         f"S21.G00.30.006,'{sex}'",
         f"S21.G00.40.001,'{contract_start}'",
         f"S21.G00.40.002,'{conv_status}'",
@@ -1628,8 +1628,8 @@ class TestEmployeeNameLists:
 
     def test_missing_prenom_fallback(self) -> None:
         emp = (
-            "S21.G00.30.001,'DURAND'\n"
-            "S21.G00.30.004,'01011990'\n"
+            "S21.G00.30.001,'X'\n"
+            "S21.G00.30.002,'DURAND'\n"
             "S21.G00.30.006,'1'\n"
             "S21.G00.40.001,'15012025'\n"
             "S21.G00.40.002,'04'\n"
@@ -1645,9 +1645,8 @@ class TestEmployeeNameLists:
 
     def test_missing_nom_fallback(self) -> None:
         emp = (
-            "S21.G00.30.001,''\n"
-            "S21.G00.30.002,'Marie'\n"
-            "S21.G00.30.004,'01011990'\n"
+            "S21.G00.30.001,'X'\n"
+            "S21.G00.30.004,'Marie'\n"
             "S21.G00.30.006,'2'\n"
             "S21.G00.40.001,'15012025'\n"
             "S21.G00.40.002,'04'\n"
@@ -1663,9 +1662,7 @@ class TestEmployeeNameLists:
 
     def test_both_missing_fallback(self) -> None:
         emp = (
-            "S21.G00.30.001,''\n"
-            "S21.G00.30.002,''\n"
-            "S21.G00.30.004,'01011990'\n"
+            "S21.G00.30.001,'X'\n"
             "S21.G00.30.006,'1'\n"
             "S21.G00.40.001,'15012025'\n"
             "S21.G00.40.002,'04'\n"
@@ -1803,10 +1800,10 @@ class TestSensitiveDataExclusion:
         nir = "1234567890123"
         text = (
             MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
-            + "S21.G00.30.001,'DUPONT'\n"
-            + "S21.G00.30.002,'JEAN'\n"
+            + f"S21.G00.30.001,'{nir}'\n"
+            + "S21.G00.30.002,'DUPONT'\n"
             + f"S21.G00.30.003,'{nir}'\n"
-            + "S21.G00.30.004,'01011990'\n"
+            + "S21.G00.30.004,'JEAN'\n"
             + "S21.G00.30.006,'1'\n"
             + "S21.G00.40.001,'15012025'\n"
             + "S21.G00.40.002,'04'\n"
@@ -1830,10 +1827,10 @@ class TestSensitiveDataExclusion:
         ntt = "2987654321098"
         text = (
             MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
-            + "S21.G00.30.001,'MARTIN'\n"
-            + "S21.G00.30.002,'SOPHIE'\n"
+            + "S21.G00.30.001,'X'\n"
+            + "S21.G00.30.002,'MARTIN'\n"
+            + "S21.G00.30.004,'SOPHIE'\n"
             + f"S21.G00.30.018,'{ntt}'\n"
-            + "S21.G00.30.004,'15061985'\n"
             + "S21.G00.30.006,'2'\n"
             + "S21.G00.40.001,'15012025'\n"
             + "S21.G00.40.002,'04'\n"
@@ -1855,10 +1852,10 @@ class TestSensitiveDataExclusion:
         nir = "1234567890123"
         dsn = (
             MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
-            + "S21.G00.30.001,'TEST'\n"
-            + "S21.G00.30.002,'USER'\n"
+            + f"S21.G00.30.001,'{nir}'\n"
+            + "S21.G00.30.002,'TEST'\n"
             + f"S21.G00.30.003,'{nir}'\n"
-            + "S21.G00.30.004,'01011990'\n"
+            + "S21.G00.30.004,'USER'\n"
             + "S21.G00.30.006,'1'\n"
             + "S21.G00.40.001,'15012025'\n"
             + "S21.G00.40.002,'04'\n"
