@@ -1558,3 +1558,166 @@ class TestModelDefaults:
 
         with pytest.raises(ValidationError):
             PayrollTracking(bogus=1)  # type: ignore[call-arg]
+
+    def test_payroll_tracking_name_list_defaults(self) -> None:
+        pt = PayrollTracking()
+        assert pt.billable_entry_names == []
+        assert pt.billable_exit_names == []
+        assert pt.billable_absence_names == []
+
+    def test_establishment_counts_name_list_defaults(self) -> None:
+        from dsn_extractor.models import EstablishmentCounts
+
+        c = EstablishmentCounts()
+        assert c.entry_employee_names == []
+        assert c.exit_employee_names == []
+        assert c.absence_employee_names == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Employee name lists
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestEmployeeNameLists:
+    def test_entry_names_from_fixture(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        # MARTIN starts 15/01/2025 (in period)
+        assert out.establishments[0].counts.entry_employee_names == ["MARTIN SOPHIE"]
+
+    def test_exit_names_from_fixture(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        # MARTIN exits 31/01/2025 with rupture 059
+        assert out.establishments[0].counts.exit_employee_names == ["MARTIN SOPHIE"]
+
+    def test_absence_names_from_fixture(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        # DUPONT has 2 absences, MARTIN has 1 — each appears once, DSN order
+        assert out.establishments[0].counts.absence_employee_names == [
+            "DUPONT JEAN",
+            "MARTIN SOPHIE",
+        ]
+
+    def test_absence_names_deduplicated_per_employee(self) -> None:
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(name="DOE", first="JOHN", absences=["01", "01", "03"])
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.absence_employee_names == ["DOE JOHN"]
+
+    def test_entry_names_empty_when_no_entries(self) -> None:
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(contract_start="01032020")  # outside Jan 2025
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.entry_employee_names == []
+
+    def test_missing_prenom_fallback(self) -> None:
+        emp = (
+            "S21.G00.30.001,'DURAND'\n"
+            "S21.G00.30.004,'01011990'\n"
+            "S21.G00.30.006,'1'\n"
+            "S21.G00.40.001,'15012025'\n"
+            "S21.G00.40.002,'04'\n"
+            "S21.G00.40.003,'01'\n"
+            "S21.G00.40.007,'01'\n"
+            "S21.G00.50.002,'2000.00'\n"
+            "S21.G00.50.004,'1800.00'\n"
+            "S21.G00.50.009,'200.00'\n"
+        )
+        text = MINIMAL_HEADER + MINIMAL_ESTABLISHMENT + emp + FOOTER
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.entry_employee_names == ["DURAND"]
+
+    def test_missing_nom_fallback(self) -> None:
+        emp = (
+            "S21.G00.30.001,''\n"
+            "S21.G00.30.002,'Marie'\n"
+            "S21.G00.30.004,'01011990'\n"
+            "S21.G00.30.006,'2'\n"
+            "S21.G00.40.001,'15012025'\n"
+            "S21.G00.40.002,'04'\n"
+            "S21.G00.40.003,'01'\n"
+            "S21.G00.40.007,'01'\n"
+            "S21.G00.50.002,'2000.00'\n"
+            "S21.G00.50.004,'1800.00'\n"
+            "S21.G00.50.009,'200.00'\n"
+        )
+        text = MINIMAL_HEADER + MINIMAL_ESTABLISHMENT + emp + FOOTER
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.entry_employee_names == ["Marie"]
+
+    def test_both_missing_fallback(self) -> None:
+        emp = (
+            "S21.G00.30.001,''\n"
+            "S21.G00.30.002,''\n"
+            "S21.G00.30.004,'01011990'\n"
+            "S21.G00.30.006,'1'\n"
+            "S21.G00.40.001,'15012025'\n"
+            "S21.G00.40.002,'04'\n"
+            "S21.G00.40.003,'01'\n"
+            "S21.G00.40.007,'01'\n"
+            "S21.G00.50.002,'2000.00'\n"
+            "S21.G00.50.004,'1800.00'\n"
+            "S21.G00.50.009,'200.00'\n"
+        )
+        text = MINIMAL_HEADER + MINIMAL_ESTABLISHMENT + emp + FOOTER
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.entry_employee_names == ["?"]
+
+    def test_names_order_is_dsn_file_order(self) -> None:
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(name="CHARLIE", first="C", contract_start="10012025")
+            + _make_employee(name="ALPHA", first="A", contract_start="05012025")
+            + _make_employee(name="BRAVO", first="B", contract_start="20012025")
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.entry_employee_names == [
+            "CHARLIE C",
+            "ALPHA A",
+            "BRAVO B",
+        ]
+
+    def test_global_names_concatenation(self, multi_establishment_text: str) -> None:
+        out = _extract_fixture(multi_establishment_text)
+        global_entries = out.global_counts.entry_employee_names
+        expected = []
+        for e in out.establishments:
+            expected += e.counts.entry_employee_names
+        assert global_entries == expected
+
+    def test_len_entry_names_equals_metric(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        pt = out.establishments[0].payroll_tracking
+        assert len(pt.billable_entry_names) == pt.billable_entries
+
+    def test_len_exit_names_equals_metric(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        pt = out.establishments[0].payroll_tracking
+        assert len(pt.billable_exit_names) == pt.billable_exits
+
+    def test_len_absence_names_lte_metric(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        pt = out.establishments[0].payroll_tracking
+        assert len(pt.billable_absence_names) <= pt.billable_absence_events
+
+
+class TestEmployeeNameAliasing:
+    def test_no_aliasing_names_tracking_to_counts(self, with_absences_text: str) -> None:
+        out = _extract_fixture(with_absences_text)
+        est = out.establishments[0]
+        original = list(est.counts.entry_employee_names)
+        est.payroll_tracking.billable_entry_names.append("BOGUS")
+        assert est.counts.entry_employee_names == original
+
+    def test_no_aliasing_names_est_to_global(self, multi_establishment_text: str) -> None:
+        out = _extract_fixture(multi_establishment_text)
+        original = list(out.global_payroll_tracking.billable_entry_names)
+        out.establishments[0].payroll_tracking.billable_entry_names.append("BOGUS")
+        assert out.global_payroll_tracking.billable_entry_names == original

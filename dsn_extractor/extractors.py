@@ -58,6 +58,24 @@ def _sum_decimal(a: Decimal | None, b: Decimal | None) -> Decimal | None:
 
 
 # ---------------------------------------------------------------------------
+# Employee name helper
+# ---------------------------------------------------------------------------
+
+
+def _employee_display_name(emp: EmployeeBlock) -> str:
+    """Format employee name as 'NOM Prénom' from DSN fields."""
+    nom = (_find_value(emp.records, "S21.G00.30.001") or "").strip()
+    prenom = (_find_value(emp.records, "S21.G00.30.002") or "").strip()
+    if nom and prenom:
+        return f"{nom} {prenom}"
+    if nom:
+        return nom
+    if prenom:
+        return prenom
+    return "?"
+
+
+# ---------------------------------------------------------------------------
 # Extraction functions
 # ---------------------------------------------------------------------------
 
@@ -169,8 +187,12 @@ def _extract_counts(
     stagiaires = 0
     new_employees = 0
     exiting_employees = 0
+    entry_names: list[str] = []
+    exit_names: list[str] = []
+    absence_names: list[str] = []
 
     for emp in employee_blocks:
+        display_name = _employee_display_name(emp)
         # Contract nature
         nature_raw = _find_value(emp.records, "S21.G00.40.007")
         if nature_raw:
@@ -205,6 +227,7 @@ def _extract_counts(
             if contract_start and period_start and period_end:
                 if period_start <= contract_start <= period_end:
                     new_employees += 1
+                    entry_names.append(display_name)
         else:
             warnings.append("Employee block missing contract start date (S21.G00.40.001)")
 
@@ -221,6 +244,7 @@ def _extract_counts(
                 if period_start <= end_date <= period_end:
                     if rupture_code != "099":
                         exiting_employees += 1
+                        exit_names.append(display_name)
                     # Aggregate exit reason for in-period exits
                     if rupture_code is not None:
                         exit_reasons_by_code[rupture_code] = (
@@ -242,6 +266,7 @@ def _extract_counts(
         if absence_motifs:
             absences_employees_count += 1
             absences_events_count += len(absence_motifs)
+            absence_names.append(display_name)
             for motif_code in absence_motifs:
                 absences_by_code[motif_code] = absences_by_code.get(motif_code, 0) + 1
                 _, was_known = lookup_enum_label(motif_code, ABSENCE_MOTIF_LABELS)
@@ -263,6 +288,9 @@ def _extract_counts(
         absences_employees_count=absences_employees_count,
         absences_events_count=absences_events_count,
         absences_by_code=absences_by_code,
+        entry_employee_names=entry_names,
+        exit_employee_names=exit_names,
+        absence_employee_names=absence_names,
     )
 
 
@@ -350,6 +378,9 @@ def _merge_counts(counts_list: list[EstablishmentCounts]) -> EstablishmentCounts
         _merge_dict(total.exit_reasons_by_code, c.exit_reasons_by_code)
         _merge_dict(total.exit_reasons_by_label, c.exit_reasons_by_label)
         _merge_dict(total.absences_by_code, c.absences_by_code)
+        total.entry_employee_names += c.entry_employee_names
+        total.exit_employee_names += c.exit_employee_names
+        total.absence_employee_names += c.absence_employee_names
     return total
 
 
@@ -457,6 +488,9 @@ def _compose_payroll_tracking(
         dsn_anomalies_count=anomalies,
         complexity_score=score,
         complexity_inputs=inputs,
+        billable_entry_names=list(counts.entry_employee_names),
+        billable_exit_names=list(counts.exit_employee_names),
+        billable_absence_names=list(counts.absence_employee_names),
     )
 
 

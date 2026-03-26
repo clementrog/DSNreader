@@ -77,6 +77,9 @@ class EstablishmentCounts(BaseModel):
     absences_employees_count: int = 0
     absences_events_count: int = 0
     absences_by_code: dict[str, int] = Field(default_factory=dict)
+    entry_employee_names: list[str] = Field(default_factory=list)
+    exit_employee_names: list[str] = Field(default_factory=list)
+    absence_employee_names: list[str] = Field(default_factory=list)
 
 
 class EstablishmentAmounts(BaseModel):
@@ -136,6 +139,9 @@ class PayrollTracking(BaseModel):
     dsn_anomalies_count: int = 0
     complexity_score: int = 0
     complexity_inputs: dict[str, int] = Field(default_factory=dict)
+    billable_entry_names: list[str] = Field(default_factory=list)
+    billable_exit_names: list[str] = Field(default_factory=list)
+    billable_absence_names: list[str] = Field(default_factory=list)
 
 
 class Establishment(BaseModel):

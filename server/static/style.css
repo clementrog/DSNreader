@@ -716,6 +716,27 @@ body[data-state="error"] #error-screen {
   border-bottom: none;
 }
 
+/* ── Name lists (employee tags inside cards) ─────────────── */
+
+.name-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  margin-top: var(--sp-2);
+}
+
+.name-list:empty {
+  display: none;
+}
+
+.name-tag {
+  font-size: var(--fs-xs);
+  color: var(--color-text-secondary);
+  background: var(--color-surface-hover);
+  padding: 2px var(--sp-2);
+  border-radius: 4px;
+}
+
 /* ── Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 768px) {

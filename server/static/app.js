@@ -174,6 +174,9 @@
   var $ptAnomalies = document.getElementById("pt-anomalies");
   var $ptScoreValue = document.getElementById("pt-score-value");
   var $ptScoreInputs = document.getElementById("pt-score-inputs");
+  var $ptEntriesNames = document.getElementById("pt-entries-names");
+  var $ptExitsNames = document.getElementById("pt-exits-names");
+  var $ptAbsencesNames = document.getElementById("pt-absences-names");
 
   // ── Formatting helpers ───────────────────────────────────
 
@@ -534,6 +537,13 @@
     }).join("");
   }
 
+  function renderNameList(el, names) {
+    if (!names || names.length === 0) { el.innerHTML = ""; return; }
+    el.innerHTML = names.map(function (n) {
+      return '<span class="name-tag">' + escapeHtml(n) + '</span>';
+    }).join("");
+  }
+
   // ── Payroll tracking rendering ─────────────────────────────
 
   function renderPayrollTracking(pt) {
@@ -543,8 +553,11 @@
     $ptEntries.textContent = pt.billable_entries;
     $ptExits.textContent = pt.billable_exits;
     $ptAbsences.textContent = pt.billable_absence_events;
-    $ptExceptional.textContent = pt.exceptional_events_count;
     $ptAnomalies.textContent = pt.dsn_anomalies_count;
+
+    renderNameList($ptEntriesNames, pt.billable_entry_names);
+    renderNameList($ptExitsNames, pt.billable_exit_names);
+    renderNameList($ptAbsencesNames, pt.billable_absence_names);
 
     $ptScoreValue.textContent = pt.complexity_score;
 
