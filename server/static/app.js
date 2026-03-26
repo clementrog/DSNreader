@@ -73,6 +73,7 @@
     "19": "Gr\u00e8ve",
     "20": "Temps partiel th\u00e9rapeutique",
     "501": "Cong\u00e9 divers non r\u00e9mun\u00e9r\u00e9",
+    "637": "Cong\u00e9 pour \u00e9v\u00e9nement familial",
   };
 
   var COMPLEXITY_WEIGHTS = {

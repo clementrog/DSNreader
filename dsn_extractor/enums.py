@@ -77,4 +77,5 @@ ABSENCE_MOTIF_LABELS: dict[str, str] = {
     "19": "greve",
     "20": "temps_partiel_therapeutique",
     "501": "conge_divers_non_remunere",
+    "637": "conge_evenement_familial",
 }
