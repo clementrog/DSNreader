@@ -47,8 +47,8 @@ def index() -> FileResponse:
 async def api_extract(file: UploadFile) -> JSONResponse:
     # 1. Extension check
     filename = file.filename or ""
-    if not filename.lower().endswith(".dsn"):
-        return _error(422, "Invalid file extension: expected .dsn")
+    if not (filename.lower().endswith(".dsn") or filename.lower().endswith(".txt")):
+        return _error(422, "Invalid file extension: expected .dsn or .txt")
 
     # 2. Read bytes and enforce size limit
     content = await file.read()

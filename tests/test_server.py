@@ -109,12 +109,20 @@ class TestErrors:
         fixture = FIXTURES / "single_establishment.dsn"
         r = client.post(
             "/api/extract",
-            files={"file": ("data.txt", fixture.read_bytes(), "application/octet-stream")},
+            files={"file": ("data.csv", fixture.read_bytes(), "application/octet-stream")},
         )
         assert r.status_code == 422
         body = r.json()
         assert "extension" in body["detail"].lower()
         assert isinstance(body["warnings"], list)
+
+    def test_txt_extension_accepted(self):
+        fixture = FIXTURES / "single_establishment.dsn"
+        r = client.post(
+            "/api/extract",
+            files={"file": ("data.txt", fixture.read_bytes(), "application/octet-stream")},
+        )
+        assert r.status_code == 200
 
     def test_oversized_file(self):
         # 10 MB + 1 byte
@@ -188,10 +196,10 @@ class TestFrontendWiring:
         assert "source_file" in r.json()
 
     def test_wrong_extension_rejected_by_server(self):
-        """Server returns 422 for non-.dsn files (defence-in-depth for client-side gate)."""
+        """Server returns 422 for non-.dsn/.txt files (defence-in-depth for client-side gate)."""
         r = client.post(
             "/api/extract",
-            files={"file": ("data.txt", b"content", "text/plain")},
+            files={"file": ("data.csv", b"content", "text/plain")},
         )
         assert r.status_code == 422
 
