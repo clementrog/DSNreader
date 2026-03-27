@@ -97,6 +97,16 @@
     "Juillet", "Ao\u00fbt", "Septembre", "Octobre", "Novembre", "D\u00e9cembre",
   ];
 
+  var CONTRIBUTION_FAMILIES = ["urssaf", "pas", "prevoyance", "mutuelle", "retraite"];
+
+  var CONTRIBUTION_FAMILY_LABELS = {
+    "urssaf": "URSSAF",
+    "pas": "PAS",
+    "prevoyance": "Pr\u00e9voyance",
+    "mutuelle": "Mutuelle",
+    "retraite": "Retraite",
+  };
+
   // ── State ────────────────────────────────────────────────
   var state = {
     phase: "empty",
@@ -104,6 +114,7 @@
     error: null,
     scope: "global",
     activeEstIdx: 0,
+    activeContributionFamily: "urssaf",
   };
 
   // ── DOM refs (cached once) ───────────────────────────────
@@ -179,6 +190,13 @@
   var $ptExitsNames = document.getElementById("pt-exits-names");
   var $ptAbsencesNames = document.getElementById("pt-absences-names");
 
+  // Contribution comparisons
+  var $ccOkCount = document.getElementById("cc-ok-count");
+  var $ccMismatchCount = document.getElementById("cc-mismatch-count");
+  var $ccWarningCount = document.getElementById("cc-warning-count");
+  var $contribFamilyTabs = document.getElementById("contrib-family-tabs");
+  var $contribFamilyPanels = document.getElementById("contrib-family-panels");
+
   // ── Formatting helpers ───────────────────────────────────
 
   function formatAmount(v) {
@@ -211,6 +229,54 @@
     var div = document.createElement("div");
     div.textContent = s;
     return div.innerHTML;
+  }
+
+  function formatStatusLabel(status) {
+    if (!status) return "\u2014";
+    if (status === "ok") return "OK";
+    if (status === "ecart") return "\u00c9cart";
+    if (status.indexOf("manquant") === 0) return status.replace(/_/g, " ");
+    if (status === "non_rattache") return "Non rattach\u00e9";
+    if (status === "non_calculable") return "Non calculable";
+    return status.replace(/_/g, " ");
+  }
+
+  function formatFamilyLabel(family) {
+    return CONTRIBUTION_FAMILY_LABELS[family] || family || "\u2014";
+  }
+
+  function getStatusBadgeClass(status) {
+    return "status-badge status-badge--" + (status || "non_calculable");
+  }
+
+  function collectComparisonWarnings(item) {
+    var warnings = [];
+    if (item && Array.isArray(item.warnings)) {
+      warnings = warnings.concat(item.warnings);
+    }
+    if (item && Array.isArray(item.details)) {
+      item.details.forEach(function (detail) {
+        if (detail && Array.isArray(detail.warnings) && detail.warnings.length > 0) {
+          warnings = warnings.concat(detail.warnings);
+        }
+      });
+    }
+    return warnings;
+  }
+
+  function countComparisonWarnings(items) {
+    var seen = {};
+    var count = 0;
+    (items || []).forEach(function (item) {
+      collectComparisonWarnings(item).forEach(function (warning) {
+        var key = String(warning);
+        if (!seen[key]) {
+          seen[key] = true;
+          count += 1;
+        }
+      });
+    });
+    return count;
   }
 
   // ── State management ─────────────────────────────────────
@@ -310,6 +376,7 @@
     }
     renderSocialAnalysis(sa);
     renderPayrollTracking(pt);
+    renderContributionComparisons();
   }
 
   function renderHeader(d) {
@@ -588,6 +655,182 @@
     }).join("");
   }
 
+  // ── Contribution comparisons rendering ───────────────────
+
+  function getActiveContributionPayload() {
+    if (!state.data) return null;
+    if (state.scope === "global") return state.data.global_contribution_comparisons || null;
+    var est = state.data.establishments[state.activeEstIdx];
+    return est ? (est.contribution_comparisons || null) : null;
+  }
+
+  function renderContributionComparisons() {
+    var payload = getActiveContributionPayload() || {};
+    var items = Array.isArray(payload.items) ? payload.items : [];
+
+    $ccOkCount.textContent = payload.ok_count != null
+      ? payload.ok_count
+      : items.filter(function (item) { return item.status === "ok"; }).length;
+    $ccMismatchCount.textContent = payload.mismatch_count != null
+      ? payload.mismatch_count
+      : items.filter(function (item) { return item.status === "ecart"; }).length;
+    $ccWarningCount.textContent = payload.warning_count != null
+      ? payload.warning_count
+      : countComparisonWarnings(items);
+
+    renderContributionFamilyTabs(items);
+    renderContributionFamilyPanels(items);
+  }
+
+  function renderContributionFamilyTabs(items) {
+    var countsByFamily = {};
+    (items || []).forEach(function (item) {
+      var family = item && item.family ? item.family : "";
+      countsByFamily[family] = (countsByFamily[family] || 0) + 1;
+    });
+
+    $contribFamilyTabs.innerHTML = CONTRIBUTION_FAMILIES.map(function (family) {
+      var active = family === state.activeContributionFamily;
+      var count = countsByFamily[family] || 0;
+      return '<button type="button" class="tab-bar__btn'
+        + (active ? ' tab-bar__btn--active' : '')
+        + '" data-family="' + escapeHtml(family) + '">'
+        + escapeHtml(formatFamilyLabel(family))
+        + ' <span class="mono">(' + count + ')</span>'
+        + '</button>';
+    }).join("");
+  }
+
+  function renderContributionFamilyPanels(items) {
+    var byFamily = {};
+    CONTRIBUTION_FAMILIES.forEach(function (family) {
+      byFamily[family] = [];
+    });
+
+    (items || []).forEach(function (item) {
+      var family = item && item.family ? item.family : "";
+      if (!byFamily[family]) byFamily[family] = [];
+      byFamily[family].push(item);
+    });
+
+    var html = CONTRIBUTION_FAMILIES.map(function (family) {
+      var familyItems = byFamily[family] || [];
+      var hidden = family !== state.activeContributionFamily;
+      return '<section class="contrib-panel"' + (hidden ? ' hidden' : '') + '>'
+        + renderContributionFamilyPanelContent(family, familyItems)
+        + '</section>';
+    }).join("");
+
+    // Render unclassified items (family not in CONTRIBUTION_FAMILIES)
+    var unclassifiedItems = [];
+    (items || []).forEach(function (item) {
+      if (item && item.family && CONTRIBUTION_FAMILIES.indexOf(item.family) === -1) {
+        unclassifiedItems.push(item);
+      }
+    });
+    if (unclassifiedItems.length > 0) {
+      html += '<section class="contrib-panel">'
+        + '<h3 class="data-section__title">Organismes non classifi\u00e9s (' + unclassifiedItems.length + ')</h3>'
+        + '<div class="contrib-stack">' + unclassifiedItems.map(renderContributionItem).join("") + '</div>'
+        + '</section>';
+    }
+
+    $contribFamilyPanels.innerHTML = html;
+  }
+
+  function renderContributionFamilyPanelContent(family, items) {
+    if (!items || items.length === 0) {
+      return '<div class="contrib-empty">'
+        + '<strong>' + escapeHtml(formatFamilyLabel(family)) + '</strong>'
+        + 'Aucune donn\u00e9e disponible pour cette famille dans le r\u00e9sultat courant.'
+        + '</div>';
+    }
+
+    return '<div class="contrib-stack">' + items.map(renderContributionItem).join("") + '</div>';
+  }
+
+  function renderContributionItem(item) {
+    var title = item.organism_label || item.organism_id || formatFamilyLabel(item.family);
+    var meta = [];
+    if (item.organism_id) meta.push("Organisme : " + item.organism_id);
+    if (item.contract_ref) meta.push("Contrat : " + item.contract_ref);
+    if (item.adhesion_id) meta.push("Adh\u00e9sion : " + item.adhesion_id);
+
+    var warningList = collectComparisonWarnings(item);
+
+    return '<article class="contrib-item">'
+      + '<div class="contrib-item__header">'
+      + '<div>'
+      + '<div class="contrib-item__title">' + escapeHtml(title) + '</div>'
+      + (meta.length > 0
+        ? '<div class="contrib-item__meta">' + escapeHtml(meta.join(' · ')) + '</div>'
+        : '')
+      + '</div>'
+      + '<span class="' + getStatusBadgeClass(item.status) + '">'
+      + escapeHtml(formatStatusLabel(item.status))
+      + '</span>'
+      + '</div>'
+      + renderContributionMetrics(item)
+      + (warningList.length > 0 ? renderContributionWarnings(warningList) : '')
+      + renderContributionDetailsTable(item)
+      + '</article>';
+  }
+
+  function renderContributionMetrics(item) {
+    var rows = [
+      { label: "Agr\u00e9g\u00e9", value: formatAmount(item.aggregate_amount) },
+      { label: "Bordereau", value: formatAmount(item.bordereau_amount) },
+      { label: "Composant", value: formatAmount(item.component_amount) },
+      { label: "Individuel", value: formatAmount(item.individual_amount) },
+      { label: "\u0394 agr\u00e9g\u00e9 / bordereau", value: formatAmount(item.aggregate_vs_bordereau_delta) },
+      { label: "\u0394 bordereau / composant", value: formatAmount(item.bordereau_vs_component_delta) },
+      { label: "\u0394 agr\u00e9g\u00e9 / composant", value: formatAmount(item.aggregate_vs_component_delta) },
+      { label: "\u0394 agr\u00e9g\u00e9 / individuel", value: formatAmount(item.aggregate_vs_individual_delta) },
+    ];
+
+    return '<div class="kv-grid">' + rows
+      .filter(function (row) { return row.value !== "\u2014"; })
+      .map(function (row) {
+        return '<div class="kv-row">'
+          + '<span class="kv-row__label">' + escapeHtml(row.label) + '</span>'
+          + '<span class="kv-row__value">' + escapeHtml(row.value) + '</span>'
+          + '</div>';
+      }).join("") + '</div>';
+  }
+
+  function renderContributionWarnings(warnings) {
+    return '<div class="contrib-warning">'
+      + '<span class="contrib-warning__title">Vigilance</span>'
+      + '<ul class="contrib-warning__list">'
+      + warnings.map(function (warning) {
+        return '<li>' + escapeHtml(String(warning)) + '</li>';
+      }).join("")
+      + '</ul>'
+      + '</div>';
+  }
+
+  function renderContributionDetailsTable(item) {
+    var details = Array.isArray(item.details) ? item.details : [];
+    var body = details.length === 0
+      ? '<tr><td colspan="5" class="data-table__empty">Aucun d\u00e9tail disponible</td></tr>'
+      : details.map(function (detail) {
+          return '<tr>'
+            + '<td class="mono">' + escapeHtml(detail.key || "\u2014") + '</td>'
+            + '<td>' + escapeHtml(detail.label || "\u2014") + '</td>'
+            + '<td class="mono">' + escapeHtml(formatAmount(detail.declared_amount)) + '</td>'
+            + '<td class="mono">' + escapeHtml(formatAmount(detail.computed_amount)) + '</td>'
+            + '<td><span class="' + getStatusBadgeClass(detail.status) + '">'
+            + escapeHtml(formatStatusLabel(detail.status))
+            + '</span></td>'
+            + '</tr>';
+        }).join("");
+
+    return '<table class="data-table" style="margin-top: var(--sp-4);">'
+      + '<thead><tr><th>Cl\u00e9</th><th>Libell\u00e9</th><th>D\u00e9clar\u00e9</th><th>Calcul\u00e9</th><th>Statut</th></tr></thead>'
+      + '<tbody>' + body + '</tbody>'
+      + '</table>';
+  }
+
   // ── Client-side file validation ──────────────────────────
 
   function isDsnFile(file) {
@@ -663,6 +906,7 @@
       error: null,
       scope: "global",
       activeEstIdx: 0,
+      activeContributionFamily: "urssaf",
     });
   }
 
@@ -726,6 +970,14 @@
     if (idx !== state.activeEstIdx) {
       setState({ activeEstIdx: idx });
     }
+  });
+
+  $contribFamilyTabs.addEventListener("click", function (e) {
+    var btn = e.target.closest(".tab-bar__btn");
+    if (!btn) return;
+    var family = btn.dataset.family;
+    if (!family || family === state.activeContributionFamily) return;
+    setState({ activeContributionFamily: family });
   });
 
   // Reset buttons

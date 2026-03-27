@@ -152,6 +152,55 @@ class PayrollTracking(BaseModel):
     billable_absence_details: list[AbsenceDetail] = Field(default_factory=list)
 
 
+class ContributionComparisonDetail(BaseModel):
+    """Detail line in a contribution reconciliation (CTP, employee, contract...)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label: str | None = None
+    declared_amount: Decimal | None = None
+    computed_amount: Decimal | None = None
+    delta: Decimal | None = None
+    status: str = "ok"
+    record_lines: list[int] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ContributionComparisonItem(BaseModel):
+    """A reconciliation for one organism in one family."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    family: str  # urssaf | pas | prevoyance | mutuelle | retraite | unclassified
+    organism_id: str | None = None
+    organism_label: str | None = None
+    aggregate_amount: Decimal | None = None
+    bordereau_amount: Decimal | None = None
+    component_amount: Decimal | None = None
+    individual_amount: Decimal | None = None
+    aggregate_vs_bordereau_delta: Decimal | None = None
+    bordereau_vs_component_delta: Decimal | None = None
+    aggregate_vs_component_delta: Decimal | None = None
+    aggregate_vs_individual_delta: Decimal | None = None
+    status: str = "ok"
+    details: list[ContributionComparisonDetail] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    adhesion_id: str | None = None
+    contract_ref: str | None = None
+
+
+class ContributionComparisons(BaseModel):
+    """Collection of all reconciliations for an establishment or global."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ContributionComparisonItem] = Field(default_factory=list)
+    ok_count: int = 0
+    mismatch_count: int = 0
+    warning_count: int = 0
+
+
 class Establishment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -162,6 +211,9 @@ class Establishment(BaseModel):
     quality: Quality = Field(default_factory=Quality)
     social_analysis: SocialAnalysis = Field(default_factory=SocialAnalysis)
     payroll_tracking: PayrollTracking = Field(default_factory=PayrollTracking)
+    contribution_comparisons: ContributionComparisons = Field(
+        default_factory=ContributionComparisons
+    )
 
 
 class DSNOutput(BaseModel):
@@ -177,3 +229,6 @@ class DSNOutput(BaseModel):
     global_quality: Quality = Field(default_factory=Quality)
     global_social_analysis: SocialAnalysis = Field(default_factory=SocialAnalysis)
     global_payroll_tracking: PayrollTracking = Field(default_factory=PayrollTracking)
+    global_contribution_comparisons: ContributionComparisons = Field(
+        default_factory=ContributionComparisons
+    )

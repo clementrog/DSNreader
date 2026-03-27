@@ -11,8 +11,13 @@ from dsn_extractor.enums import (
     CONTRACT_NATURE_LABELS,
     RETIREMENT_CATEGORY_LABELS,
 )
+from dsn_extractor.contributions import (
+    compute_contribution_comparisons,
+    merge_contribution_comparisons,
+)
 from dsn_extractor.models import (
     Company,
+    ContributionComparisons,
     Declaration,
     DSNOutput,
     Establishment,
@@ -535,6 +540,7 @@ def extract(parsed: ParsedDSN, source_file: str = "") -> DSNOutput:
     all_counts: list[EstablishmentCounts] = []
     all_amounts: list[EstablishmentAmounts] = []
     all_extras: list[EstablishmentExtras] = []
+    all_contribution_comparisons: list[ContributionComparisons] = []
 
     for est_block in parsed.establishments:
         est_warnings: list[str] = []
@@ -547,6 +553,7 @@ def extract(parsed: ParsedDSN, source_file: str = "") -> DSNOutput:
         )
         amounts = _extract_amounts(est_block.s54_blocks, est_warnings)
         extras = _extract_extras(est_block.employee_blocks)
+        contribution_comparisons = compute_contribution_comparisons(est_block)
 
         est_quality = Quality(warnings=est_warnings)
         est = Establishment(
@@ -557,16 +564,21 @@ def extract(parsed: ParsedDSN, source_file: str = "") -> DSNOutput:
             quality=est_quality,
             social_analysis=_compose_social_analysis(counts, extras, est_quality),
             payroll_tracking=_compose_payroll_tracking(counts, est_quality),
+            contribution_comparisons=contribution_comparisons,
         )
         establishments.append(est)
         all_counts.append(counts)
         all_amounts.append(amounts)
         all_extras.append(extras)
+        all_contribution_comparisons.append(contribution_comparisons)
 
     # 5. Global aggregation
     global_counts = _merge_counts(all_counts)
     global_amounts = _merge_amounts(all_amounts)
     global_extras = _merge_extras(all_extras)
+    global_contribution_comparisons = merge_contribution_comparisons(
+        all_contribution_comparisons
+    )
 
     # 6. Global quality: parser warnings + orchestrator warnings + per-establishment warnings
     all_warnings = list(parsed.warnings) + global_warnings
@@ -588,4 +600,5 @@ def extract(parsed: ParsedDSN, source_file: str = "") -> DSNOutput:
             global_counts, global_extras, global_quality
         ),
         global_payroll_tracking=_compose_payroll_tracking(global_counts, global_quality),
+        global_contribution_comparisons=global_contribution_comparisons,
     )
