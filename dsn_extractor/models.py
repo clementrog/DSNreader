@@ -159,10 +159,20 @@ class ContributionComparisonDetail(BaseModel):
 
     key: str
     label: str | None = None
+    short_label: str | None = None
+    ctp_code: str | None = None
+    mapped_code: str | None = None
+    assiette_qualifier: str | None = None
+    assiette_label: str | None = None
+    rate: Decimal | None = None
+    expected_rate: Decimal | None = None
+    base_amount: Decimal | None = None
     declared_amount: Decimal | None = None
     computed_amount: Decimal | None = None
     delta: Decimal | None = None
     status: str = "ok"
+    rate_mismatch: bool = False
+    amount_mismatch: bool = False
     record_lines: list[int] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

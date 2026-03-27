@@ -118,6 +118,7 @@
     activeEstIdx: 0,
     activeContributionFamily: "urssaf",
     activePage: "controle",
+    contribFilterEcartsOnly: false,
   };
 
   // ── DOM refs (cached once) ───────────────────────────────
@@ -212,6 +213,16 @@
     }) + " \u20ac";
   }
 
+  function formatRate(v) {
+    if (v == null) return "\u2014";
+    var n = parseFloat(v);
+    if (isNaN(n)) return "\u2014";
+    return n.toLocaleString("fr-FR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 4,
+    }) + " %";
+  }
+
   function formatSiret(v) {
     if (!v) return "\u2014";
     var s = v.replace(/\s/g, "");
@@ -238,10 +249,22 @@
     if (!status) return "\u2014";
     if (status === "ok") return "OK";
     if (status === "ecart") return "\u00c9cart";
+    if (status === "declared_only") return "D\u00e9clar\u00e9 seul";
+    if (status === "computed_only") return "Recalcul\u00e9 seul";
     if (status.indexOf("manquant") === 0) return status.replace(/_/g, " ");
     if (status === "non_rattache") return "Non rattach\u00e9";
     if (status === "non_calculable") return "Non calculable";
     return status.replace(/_/g, " ");
+  }
+
+  function formatDetailStatusLabel(detail) {
+    if (detail.status !== "ecart") return formatStatusLabel(detail.status);
+    var rm = !!detail.rate_mismatch;
+    var am = !!detail.amount_mismatch;
+    if (rm && am) return "\u00c9cart taux + montant";
+    if (rm) return "\u00c9cart taux";
+    if (am) return "\u00c9cart montant";
+    return "\u00c9cart";
   }
 
   function formatFamilyLabel(family) {
@@ -829,7 +852,62 @@
       + '</div>';
   }
 
+  function renderUrssafDetailsTable(item) {
+    var details = Array.isArray(item.details) ? item.details : [];
+    var totalRows = details.length;
+    var ecartRows = details.filter(function (d) {
+      return !!d.rate_mismatch || !!d.amount_mismatch;
+    }).length;
+    var filterActive = state.contribFilterEcartsOnly;
+
+    var visibleDetails = filterActive
+      ? details.filter(function (d) { return !!d.rate_mismatch || !!d.amount_mismatch; })
+      : details;
+
+    var toolbar = '<div class="contrib-filter-toolbar">'
+      + '<label class="contrib-filter-toggle">'
+      + '<input type="checkbox" class="contrib-filter-toggle__input"'
+      + ' data-action="toggle-ecarts-filter"'
+      + (filterActive ? ' checked' : '') + '>'
+      + '<span class="contrib-filter-toggle__label">Afficher uniquement les \u00e9carts</span>'
+      + '</label>'
+      + '<span class="contrib-filter-count">' + ecartRows + ' \u00e9cart(s) / ' + totalRows + ' lignes</span>'
+      + '</div>';
+
+    var body = visibleDetails.length === 0
+      ? '<tr><td colspan="9" class="data-table__empty">Aucun d\u00e9tail disponible</td></tr>'
+      : visibleDetails.map(function (detail) {
+          var rmCls = detail.rate_mismatch ? ' cell-mismatch' : '';
+          var amCls = detail.amount_mismatch ? ' cell-mismatch' : '';
+          return '<tr>'
+            + '<td class="mono">' + escapeHtml(detail.mapped_code || detail.ctp_code || "\u2014") + '</td>'
+            + '<td>' + escapeHtml(detail.label || "\u2014") + '</td>'
+            + '<td>' + escapeHtml(detail.assiette_label || detail.assiette_qualifier || "\u2014") + '</td>'
+            + '<td class="mono">' + escapeHtml(formatAmount(detail.base_amount)) + '</td>'
+            + '<td class="mono' + rmCls + '">' + escapeHtml(formatRate(detail.rate)) + '</td>'
+            + '<td class="mono' + rmCls + '">' + escapeHtml(formatRate(detail.expected_rate)) + '</td>'
+            + '<td class="mono' + amCls + '">' + escapeHtml(formatAmount(detail.declared_amount)) + '</td>'
+            + '<td class="mono' + amCls + '">' + escapeHtml(formatAmount(detail.computed_amount)) + '</td>'
+            + '<td><span class="' + getStatusBadgeClass(detail.status) + '">'
+            + escapeHtml(formatDetailStatusLabel(detail))
+            + '</span></td>'
+            + '</tr>';
+        }).join("");
+
+    return toolbar
+      + '<div class="contrib-details-wrap">'
+      + '<table class="data-table contrib-details-table" style="margin-top: var(--sp-4);">'
+      + '<thead><tr><th>Code DUCS</th><th>Libell\u00e9</th><th>Type d\u2019assiette</th><th>Assiette</th><th>Taux DSN</th><th>Taux ref</th><th>Montant DSN</th><th>Montant recalcul\u00e9</th><th>Statut</th></tr></thead>'
+      + '<tbody>' + body + '</tbody>'
+      + '</table>'
+      + '</div>';
+  }
+
   function renderContributionDetailsTable(item) {
+    if (item && item.family === "urssaf") {
+      return renderUrssafDetailsTable(item);
+    }
+
     var details = Array.isArray(item.details) ? item.details : [];
     var body = details.length === 0
       ? '<tr><td colspan="5" class="data-table__empty">Aucun d\u00e9tail disponible</td></tr>'
@@ -845,10 +923,12 @@
             + '</tr>';
         }).join("");
 
-    return '<table class="data-table" style="margin-top: var(--sp-4);">'
+    return '<div class="contrib-details-wrap">'
+      + '<table class="data-table contrib-details-table" style="margin-top: var(--sp-4);">'
       + '<thead><tr><th>Cl\u00e9</th><th>Libell\u00e9</th><th>D\u00e9clar\u00e9</th><th>Calcul\u00e9</th><th>Statut</th></tr></thead>'
       + '<tbody>' + body + '</tbody>'
-      + '</table>';
+      + '</table>'
+      + '</div>';
   }
 
   // ── Client-side file validation ──────────────────────────
@@ -928,6 +1008,7 @@
       activeEstIdx: 0,
       activeContributionFamily: "urssaf",
       activePage: "controle",
+      contribFilterEcartsOnly: false,
     });
   }
 
@@ -1009,6 +1090,12 @@
     var family = btn.dataset.family;
     if (!family || family === state.activeContributionFamily) return;
     setState({ activeContributionFamily: family });
+  });
+
+  $contribFamilyPanels.addEventListener("change", function (e) {
+    if (e.target && e.target.dataset && e.target.dataset.action === "toggle-ecarts-filter") {
+      setState({ contribFilterEcartsOnly: e.target.checked });
+    }
   });
 
   // Reset buttons

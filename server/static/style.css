@@ -868,7 +868,9 @@ body[data-state="error"] #error-screen {
 .status-badge--manquant_agrege,
 .status-badge--manquant_bordereau,
 .status-badge--manquant_detail,
-.status-badge--manquant_individuel {
+.status-badge--manquant_individuel,
+.status-badge--declared_only,
+.status-badge--computed_only {
   color: var(--color-warning);
   border-color: color-mix(in srgb, var(--color-warning) 45%, var(--color-border));
   background: color-mix(in srgb, var(--color-warning) 12%, transparent);
@@ -918,6 +920,61 @@ body[data-state="error"] #error-screen {
   display: block;
   margin-bottom: var(--sp-1);
   color: var(--color-text-primary);
+}
+
+.contrib-details-wrap {
+  overflow-x: auto;
+}
+
+.contrib-details-table {
+  min-width: 760px;
+}
+
+/* ── Contribution filter toolbar ────────────────────────── */
+
+.contrib-filter-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-1);
+  margin-top: var(--sp-4);
+  margin-bottom: var(--sp-2);
+}
+
+.contrib-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+}
+
+.contrib-filter-toggle__input {
+  accent-color: var(--color-accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.contrib-filter-toggle__label {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  user-select: none;
+}
+
+.contrib-filter-count {
+  font-size: var(--fs-xs);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+}
+
+/* ── Rate/amount mismatch cell highlight ────────────────── */
+
+.cell-mismatch {
+  color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
+  border-radius: 2px;
 }
 
 /* ── Responsive ───────────────────────────────────────────── */

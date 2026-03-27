@@ -553,7 +553,10 @@ def extract(parsed: ParsedDSN, source_file: str = "") -> DSNOutput:
         )
         amounts = _extract_amounts(est_block.s54_blocks, est_warnings)
         extras = _extract_extras(est_block.employee_blocks)
-        contribution_comparisons = compute_contribution_comparisons(est_block)
+        contribution_comparisons = compute_contribution_comparisons(
+            est_block,
+            reference_date=period_start,
+        )
 
         est_quality = Quality(warnings=est_warnings)
         est = Establishment(

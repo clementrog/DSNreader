@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import csv
 import tempfile
 from decimal import Decimal
@@ -614,6 +615,7 @@ class TestURSSAF:
         assert urssaf.bordereau_amount == Decimal("5000.00")
         assert urssaf.component_amount == Decimal("5000.00")
         assert len(urssaf.details) == 2
+        assert urssaf.details[0].status == "declared_only"
 
     def test_urssaf_rate_only(self):
         """CTP with empty 23.005 but base+rate present → uses recomputed."""
@@ -632,7 +634,33 @@ class TestURSSAF:
         urssaf = [i for i in cc.items if i.family == "urssaf"][0]
         # recomputed = 3000 * 7.30 / 100 = 219.00
         assert urssaf.component_amount == Decimal("219.00")
-        assert urssaf.details[0].computed_amount == Decimal("219.00")
+        detail = urssaf.details[0]
+        assert detail.ctp_code == "100"
+        assert detail.assiette_qualifier == "920"
+        assert detail.assiette_label == "Taux déplafonné"
+        assert detail.base_amount == Decimal("3000.00")
+        assert detail.rate == Decimal("7.30")
+        assert detail.computed_amount == Decimal("219.00")
+        assert detail.status == "computed_only"
+
+    def test_urssaf_declared_only_detail_is_not_marked_ok(self):
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "3000.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "3000.00", 4),
+            _r("S21.G00.23.001", "027", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "3000.00", 7),
+        )
+        cc = compute_contribution_comparisons(est)
+        urssaf = [i for i in cc.items if i.family == "urssaf"][0]
+        detail = urssaf.details[0]
+
+        assert detail.declared_amount == Decimal("3000.00")
+        assert detail.computed_amount is None
+        assert detail.assiette_label == "Taux déplafonné"
+        assert detail.status == "declared_only"
 
     def test_urssaf_partial_ctp_recalculation_hides_partial_component_total(self):
         est = _est(
@@ -655,6 +683,157 @@ class TestURSSAF:
         assert urssaf.bordereau_vs_component_delta is None
         assert any("partial_ctp_recalculation" in w for w in urssaf.warnings)
         assert urssaf.status == "ok"
+
+
+class TestURSSAFReferenceRates:
+    def test_reference_rate_uses_declaration_date_and_assiette_mapping(self):
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "131.70", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "131.70", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "13.17", 7),
+            _r("S21.G00.23.004", "1000.00", 8),
+            _r("S21.G00.23.005", "131.70", 9),
+        )
+        cc = compute_contribution_comparisons(est, reference_date=dt.date(2025, 1, 1))
+        urssaf = [i for i in cc.items if i.family == "urssaf"][0]
+        detail = urssaf.details[0]
+
+        assert detail.mapped_code == "100D"
+        assert detail.expected_rate == Decimal("13.17")
+        assert detail.computed_amount == Decimal("131.70")
+        assert detail.status == "ok"
+        assert detail.rate_mismatch is False
+        assert detail.amount_mismatch is False
+
+    def test_reference_rate_switches_on_effective_date(self):
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "132.60", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "132.60", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "13.26", 7),
+            _r("S21.G00.23.004", "1000.00", 8),
+            _r("S21.G00.23.005", "132.60", 9),
+        )
+        cc = compute_contribution_comparisons(est, reference_date=dt.date(2026, 1, 1))
+        detail = [i for i in cc.items if i.family == "urssaf"][0].details[0]
+
+        assert detail.expected_rate == Decimal("13.26")
+        assert detail.mapped_code == "100D"
+        assert detail.status == "ok"
+
+    def test_reference_rate_flags_dsn_rate_mismatch(self):
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "90.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "90.00", 4),
+            _r("S21.G00.23.001", "332", 5),
+            _r("S21.G00.23.002", "921", 6),
+            _r("S21.G00.23.003", "0.15", 7),
+            _r("S21.G00.23.004", "90000.00", 8),
+            _r("S21.G00.23.005", "90.00", 9),
+        )
+        cc = compute_contribution_comparisons(est, reference_date=dt.date(2025, 1, 1))
+        detail = [i for i in cc.items if i.family == "urssaf"][0].details[0]
+
+        assert detail.mapped_code == "332P"
+        assert detail.expected_rate == Decimal("0.10")
+        assert detail.computed_amount == Decimal("90.00")
+        assert detail.status == "ecart"
+        assert detail.rate_mismatch is True
+        assert detail.amount_mismatch is False
+        assert any("taux DSN 0.15" in w for w in detail.warnings)
+
+    def test_rate_mismatch_false_amount_mismatch_true(self):
+        """DSN rate matches reference but declared != recomputed."""
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "100.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "100.00", 4),
+            _r("S21.G00.23.001", "332", 5),
+            _r("S21.G00.23.002", "921", 6),
+            _r("S21.G00.23.003", "0.10", 7),
+            _r("S21.G00.23.004", "90000.00", 8),
+            _r("S21.G00.23.005", "100.00", 9),  # declared != recomputed (90.00)
+        )
+        cc = compute_contribution_comparisons(est, reference_date=dt.date(2025, 1, 1))
+        detail = [i for i in cc.items if i.family == "urssaf"][0].details[0]
+
+        assert detail.rate_mismatch is False
+        assert detail.amount_mismatch is True
+        assert detail.status == "ecart"
+
+    def test_both_mismatches_true(self):
+        """Both DSN rate and amount differ from reference."""
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "100.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "100.00", 4),
+            _r("S21.G00.23.001", "332", 5),
+            _r("S21.G00.23.002", "921", 6),
+            _r("S21.G00.23.003", "0.15", 7),  # rate mismatch (ref=0.10)
+            _r("S21.G00.23.004", "90000.00", 8),
+            _r("S21.G00.23.005", "100.00", 9),  # amount mismatch (recomputed=90.00)
+        )
+        cc = compute_contribution_comparisons(est, reference_date=dt.date(2025, 1, 1))
+        detail = [i for i in cc.items if i.family == "urssaf"][0].details[0]
+
+        assert detail.rate_mismatch is True
+        assert detail.amount_mismatch is True
+        assert detail.status == "ecart"
+
+    def test_mismatch_fields_serialize_in_json(self):
+        """Ensure rate_mismatch and amount_mismatch appear in JSON output."""
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "131.70", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "131.70", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "13.17", 7),
+            _r("S21.G00.23.004", "1000.00", 8),
+            _r("S21.G00.23.005", "131.70", 9),
+        )
+        cc = compute_contribution_comparisons(est, reference_date=dt.date(2025, 1, 1))
+        data = cc.model_dump(mode="json")
+        detail_json = data["items"][0]["details"][0]
+        assert "rate_mismatch" in detail_json
+        assert "amount_mismatch" in detail_json
+        assert detail_json["rate_mismatch"] is False
+        assert detail_json["amount_mismatch"] is False
+
+    def test_format_f_ctp_does_not_force_amount_recalculation(self):
+        """Format F reduction lines are carried in declared amount, not base*taux."""
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "-4369.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "-4369.00", 4),
+            _r("S21.G00.23.001", "668", 5),
+            _r("S21.G00.23.002", "921", 6),
+            _r("S21.G00.23.003", "100.00", 7),
+            _r("S21.G00.23.004", "4369.00", 8),
+            _r("S21.G00.23.005", "-4369.00", 9),
+        )
+        cc = compute_contribution_comparisons(est, reference_date=dt.date(2026, 1, 1))
+        detail = [i for i in cc.items if i.family == "urssaf"][0].details[0]
+
+        assert detail.mapped_code == "668P"
+        assert detail.expected_rate == Decimal("100.00")
+        assert detail.computed_amount is None
+        assert detail.rate_mismatch is False
+        assert detail.amount_mismatch is False
+        assert detail.status == "declared_only"
 
 
 class TestRetraite:

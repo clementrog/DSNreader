@@ -7,6 +7,7 @@ mutuelle, retraite.
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -17,6 +18,7 @@ from dsn_extractor.block_groups import (
     group_employee_blocks,
     group_establishment_blocks,
 )
+from dsn_extractor.ctp_rates import lookup_ctp_reference
 from dsn_extractor.models import (
     ContributionComparisonDetail,
     ContributionComparisonItem,
@@ -76,6 +78,12 @@ REGULARIZATION_WARNING = (
 )
 
 _TOL_001 = Decimal("0.01")
+_RATE_TOL_0001 = Decimal("0.0001")
+
+ASSIETTE_QUALIFIER_LABELS: dict[str, str] = {
+    "920": "Taux déplafonné",
+    "921": "Taux plafonné",
+}
 
 
 def _employee_display_name(emp: EmployeeBlock) -> str:
@@ -84,6 +92,53 @@ def _employee_display_name(emp: EmployeeBlock) -> str:
     if nom and prenom:
         return f"{nom} {prenom}"
     return nom or prenom or "?"
+
+
+def _format_assiette_label(qualifier: str | None) -> str | None:
+    if not qualifier:
+        return None
+    return ASSIETTE_QUALIFIER_LABELS.get(qualifier, qualifier)
+
+
+def _format_mapped_ctp_code(
+    ctp_code: str,
+    assiette_qualifier: str | None,
+    has_plafonne_rate: bool,
+    has_deplafonne_rate: bool,
+) -> str:
+    if assiette_qualifier == "921" and has_plafonne_rate:
+        return f"{ctp_code}P"
+    if assiette_qualifier == "920" and has_deplafonne_rate:
+        return f"{ctp_code}D"
+    return ctp_code
+
+
+def _select_reference_rate(
+    ctp_code: str,
+    assiette_qualifier: str | None,
+    reference_date: dt.date | None,
+) -> tuple[str, str | None, str | None, str | None, Decimal | None]:
+    ref = lookup_ctp_reference(ctp_code, reference_date)
+    if ref is None:
+        return ctp_code, None, None, None, None
+
+    expected_rate: Decimal | None = None
+    if assiette_qualifier == "921" and ref.rate_plafonne is not None:
+        expected_rate = ref.rate_plafonne
+    elif assiette_qualifier == "920" and ref.rate_deplafonne is not None:
+        expected_rate = ref.rate_deplafonne
+    elif ref.rate_deplafonne is not None and ref.rate_plafonne is None:
+        expected_rate = ref.rate_deplafonne
+    elif ref.rate_plafonne is not None and ref.rate_deplafonne is None:
+        expected_rate = ref.rate_plafonne
+
+    mapped_code = _format_mapped_ctp_code(
+        ctp_code,
+        assiette_qualifier,
+        ref.rate_plafonne is not None,
+        ref.rate_deplafonne is not None,
+    )
+    return mapped_code, ref.label, ref.short_label, ref.fmt, expected_rate
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +282,7 @@ def _compute_urssaf(
     s20_blocks: list[BlockGroup],
     s22_blocks: list[BlockGroup],
     est_groups: EstablishmentBlockGroups,
+    reference_date: dt.date | None,
 ) -> ContributionComparisonItem:
     label, _, _ = lookup_organism(organism_id)
     warnings: list[str] = []
@@ -281,6 +337,11 @@ def _compute_urssaf(
             assiette_qual = _find_value(s23.records, "S21.G00.23.002") or ""
             insee_code = _find_value(s23.records, "S21.G00.23.006") or ""
             key = f"{ctp_code}/{assiette_qual}/{insee_code}".rstrip("/")
+            mapped_code, reference_label, short_label, reference_fmt, expected_rate = _select_reference_rate(
+                ctp_code,
+                assiette_qual or None,
+                reference_date,
+            )
 
             declared_raw = _find_value(s23.records, "S21.G00.23.005")
             rate_raw = _find_value(s23.records, "S21.G00.23.003")
@@ -291,8 +352,14 @@ def _compute_urssaf(
             base = _dec(base_raw) if base_raw and base_raw.strip() else None
 
             recomputed: Decimal | None = None
-            if base is not None and rate is not None:
-                recomputed = (base * rate / Decimal(100)).quantize(
+            effective_rate = expected_rate if expected_rate is not None else rate
+            # Net-entreprises documents F/R CTP formats as special
+            # reduction/regularization lines whose business amount lives in
+            # S21.G00.23.005 rather than being safely recomputable from
+            # S21.G00.23.004 × taux.
+            can_recompute_amount = reference_fmt not in {"F", "R"}
+            if base is not None and effective_rate is not None and can_recompute_amount:
+                recomputed = (base * effective_rate / Decimal(100)).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP
                 )
                 n_recalculated_ctps += 1
@@ -305,21 +372,36 @@ def _compute_urssaf(
             else:
                 ctp_amount = None
 
-            # Detail status
+            # Detail status — classification driven by tolerance rules
             ctp_status = "ok"
             ctp_delta: Decimal | None = None
             ctp_warnings: list[str] = []
+            rate_mismatch = False
+            amount_mismatch = False
 
-            if ctp_amount is None:
+            if rate is not None and expected_rate is not None:
+                rate_mismatch = not _within_tolerance(rate, expected_rate, _RATE_TOL_0001)
+                if rate_mismatch:
+                    ctp_warnings.append(
+                        f"CTP {mapped_code}: taux DSN {rate} ≠ taux référence {expected_rate}"
+                    )
+
+            if declared is not None and recomputed is not None:
+                ctp_delta = declared - recomputed
+                amount_mismatch = not _within_tolerance(declared, recomputed, _TOL_001)
+                if amount_mismatch or rate_mismatch:
+                    ctp_status = "ecart"
+                if amount_mismatch:
+                    ctp_warnings.append(
+                        f"CTP {mapped_code}: déclaré {declared} ≠ recalculé {recomputed}"
+                    )
+            elif declared is not None:
+                ctp_status = "ecart" if rate_mismatch else "declared_only"
+            elif recomputed is not None:
+                ctp_status = "computed_only"
+            else:
                 ctp_status = "non_calculable"
                 non_calculable_ctp_count += 1
-            elif declared is not None and recomputed is not None:
-                ctp_delta = declared - recomputed
-                if not _within_tolerance(declared, recomputed, _TOL_001):
-                    ctp_status = "ecart"
-                    ctp_warnings.append(
-                        f"CTP {ctp_code}: déclaré {declared} ≠ recalculé {recomputed}"
-                    )
 
             if ctp_amount is not None:
                 component_total += ctp_amount
@@ -327,11 +409,21 @@ def _compute_urssaf(
 
             details.append(ContributionComparisonDetail(
                 key=key,
-                label=lookup_ctp(ctp_code) or ctp_code,
+                label=reference_label or lookup_ctp(ctp_code) or ctp_code,
+                short_label=short_label,
+                ctp_code=ctp_code or None,
+                mapped_code=mapped_code or None,
+                assiette_qualifier=assiette_qual or None,
+                assiette_label=_format_assiette_label(assiette_qual),
+                rate=rate,
+                expected_rate=expected_rate,
+                base_amount=base,
                 declared_amount=declared,
                 computed_amount=recomputed,
                 delta=ctp_delta,
                 status=ctp_status,
+                rate_mismatch=rate_mismatch,
+                amount_mismatch=amount_mismatch,
                 record_lines=_record_lines(s23.records),
                 warnings=ctp_warnings,
             ))
@@ -873,6 +965,7 @@ def _compute_counts(items: list[ContributionComparisonItem]) -> tuple[int, int, 
 
 def compute_contribution_comparisons(
     est_block: EstablishmentBlock,
+    reference_date: dt.date | None = None,
 ) -> ContributionComparisons:
     """Compute all contribution comparisons for one establishment."""
     est_groups = group_establishment_blocks(est_block)
@@ -939,7 +1032,15 @@ def compute_contribution_comparisons(
 
     # URSSAF
     for org_id, s20_list in urssaf_s20_by_org.items():
-        items.append(_compute_urssaf(org_id, s20_list, est_groups.s22_blocks, est_groups))
+        items.append(
+            _compute_urssaf(
+                org_id,
+                s20_list,
+                est_groups.s22_blocks,
+                est_groups,
+                reference_date,
+            )
+        )
 
     # Complementary (family resolved per contract)
     for org_id, s20_list in complementary_s20_by_org.items():
