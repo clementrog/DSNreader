@@ -74,6 +74,13 @@
       <button class="btn btn--secondary" type="button" data-action="reset">Nouveau fichier</button>
     </header>
 
+    <!-- Page navigation -->
+    <nav id="page-nav" class="page-nav">
+      <button class="page-nav__btn" type="button" data-page="analyse">Analyse sociale</button>
+      <button class="page-nav__btn" type="button" data-page="tracking">Tracking gestionnaire</button>
+      <button class="page-nav__btn page-nav__btn--active" type="button" data-page="controle">Contr&#244;le de DSN</button>
+    </nav>
+
     <!-- Scope toggle -->
     <div class="scope-toggle">
       <button class="scope-toggle__btn scope-toggle__btn--active" type="button" data-scope="global">Global</button>
@@ -94,6 +101,9 @@
         <ul class="warnings-banner__list" id="warnings-list"></ul>
       </div>
     </div>
+
+    <!-- ═══ Page: Analyse sociale ═══════════════════════════════ -->
+    <div id="page-analyse" class="page-content" hidden>
 
     <!-- Summary cards -->
     <section class="card-row">
@@ -179,9 +189,8 @@
       </div>
     </section>
 
-    <!-- ── Analyse sociale ──────────────────────────────────────── -->
-    <section class="dashboard-section" id="section-social">
-      <h2 class="dashboard-section__title">Analyse sociale</h2>
+    <!-- ── Analyse sociale detail ─────────────────────────────── -->
+    <section class="dashboard-section dashboard-section--no-top" id="section-social">
 
       <div class="card-row">
         <div class="summary-card">
@@ -271,8 +280,12 @@
       </div>
     </section>
 
-    <!-- ── Tracking gestionnaire ─────────────────────────────────── -->
-    <section class="dashboard-section" id="section-tracking">
+    </div><!-- /page-analyse -->
+
+    <!-- ═══ Page: Tracking gestionnaire ════════════════════════ -->
+    <div id="page-tracking" class="page-content" hidden>
+
+    <section class="dashboard-section dashboard-section--no-top" id="section-tracking">
       <h2 class="dashboard-section__title">Tracking gestionnaire</h2>
 
       <div class="card-row">
@@ -319,8 +332,12 @@
       </div>
     </section>
 
-    <!-- ── Rapprochement cotisations ───────────────────────── -->
-    <section class="dashboard-section" id="section-contributions">
+    </div><!-- /page-tracking -->
+
+    <!-- ═══ Page: Contrôle de DSN ══════════════════════════════ -->
+    <div id="page-controle" class="page-content">
+
+    <section class="dashboard-section dashboard-section--no-top" id="section-contributions">
       <h2 class="dashboard-section__title">Rapprochement cotisations</h2>
 
       <div class="card-row card-row--third">
@@ -344,6 +361,8 @@
         <div id="contrib-family-panels"></div>
       </div>
     </section>
+
+    </div><!-- /page-controle -->
 
   </main>
 

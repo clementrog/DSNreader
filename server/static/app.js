@@ -108,6 +108,8 @@
   };
 
   // ── State ────────────────────────────────────────────────
+  var PAGES = ["analyse", "tracking", "controle"];
+
   var state = {
     phase: "empty",
     data: null,
@@ -115,6 +117,7 @@
     scope: "global",
     activeEstIdx: 0,
     activeContributionFamily: "urssaf",
+    activePage: "controle",
   };
 
   // ── DOM refs (cached once) ───────────────────────────────
@@ -334,10 +337,27 @@
 
   // ── Results rendering ────────────────────────────────────
 
+  function renderPageNav() {
+    var btns = document.querySelectorAll(".page-nav__btn");
+    btns.forEach(function (btn) {
+      if (btn.dataset.page === state.activePage) {
+        btn.classList.add("page-nav__btn--active");
+      } else {
+        btn.classList.remove("page-nav__btn--active");
+      }
+    });
+
+    PAGES.forEach(function (page) {
+      var el = document.getElementById("page-" + page);
+      if (el) el.hidden = page !== state.activePage;
+    });
+  }
+
   function renderResults() {
     var d = state.data;
 
     renderHeader(d);
+    renderPageNav();
     renderScopeToggle();
     renderEstablishmentTabs(d);
 
@@ -907,6 +927,7 @@
       scope: "global",
       activeEstIdx: 0,
       activeContributionFamily: "urssaf",
+      activePage: "controle",
     });
   }
 
@@ -950,6 +971,16 @@
   // File input
   $fileInput.addEventListener("change", function () {
     if ($fileInput.files.length > 0) handleFile($fileInput.files[0]);
+  });
+
+  // Page navigation
+  document.querySelectorAll(".page-nav__btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var page = btn.dataset.page;
+      if (page && page !== state.activePage) {
+        setState({ activePage: page });
+      }
+    });
   });
 
   // Scope toggle
