@@ -910,22 +910,18 @@
 
     var details = Array.isArray(item.details) ? item.details : [];
     var body = details.length === 0
-      ? '<tr><td colspan="5" class="data-table__empty">Aucun d\u00e9tail disponible</td></tr>'
+      ? '<tr><td colspan="3" class="data-table__empty">Aucun d\u00e9tail disponible</td></tr>'
       : details.map(function (detail) {
           return '<tr>'
-            + '<td class="mono">' + escapeHtml(detail.key || "\u2014") + '</td>'
+            + '<td>' + escapeHtml(detail.key || "\u2014") + '</td>'
             + '<td>' + escapeHtml(detail.label || "\u2014") + '</td>'
             + '<td class="mono">' + escapeHtml(formatAmount(detail.declared_amount)) + '</td>'
-            + '<td class="mono">' + escapeHtml(formatAmount(detail.computed_amount)) + '</td>'
-            + '<td><span class="' + getStatusBadgeClass(detail.status) + '">'
-            + escapeHtml(formatStatusLabel(detail.status))
-            + '</span></td>'
             + '</tr>';
         }).join("");
 
     return '<div class="contrib-details-wrap">'
       + '<table class="data-table contrib-details-table" style="margin-top: var(--sp-4);">'
-      + '<thead><tr><th>Cl\u00e9</th><th>Libell\u00e9</th><th>D\u00e9clar\u00e9</th><th>Calcul\u00e9</th><th>Statut</th></tr></thead>'
+      + '<thead><tr><th>Salari\u00e9</th><th>D\u00e9tail</th><th>Montant</th></tr></thead>'
       + '<tbody>' + body + '</tbody>'
       + '</table>'
       + '</div>';
