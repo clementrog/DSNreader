@@ -262,6 +262,32 @@ class TestSegmentSingleEstablishment:
             assert "S21.G00.30.001" in codes
             assert any(c.startswith("S21.G00.40.") or c.startswith("S21.G00.50.") for c in codes)
 
+    def test_s54_inside_employee_does_not_end_employee_context(self):
+        text = (
+            "S10.G00.00.001,'P24V01'\n"
+            "S20.G00.05.001,'01'\n"
+            "S21.G00.06.001,'00001'\n"
+            "S21.G00.11.001,'00001'\n"
+            "S21.G00.30.001,'EMP1'\n"
+            "S21.G00.40.001,'01012025'\n"
+            "S21.G00.54.001,'92'\n"
+            "S21.G00.54.002,'10.00'\n"
+            "S21.G00.78.001,'31'\n"
+            "S21.G00.78.005,'2'\n"
+            "S21.G00.81.001,'059'\n"
+            "S21.G00.81.004,'12.34'\n"
+            "S90.G00.90.001,'1'\n"
+        )
+        result = parse(text)
+        est = result.establishments[0]
+
+        assert len(est.employee_blocks) == 1
+        emp_codes = {r.code for r in est.employee_blocks[0].records}
+        assert "S21.G00.78.001" in emp_codes
+        assert "S21.G00.81.004" in emp_codes
+        assert len(est.s54_blocks) == 1
+        assert est.s54_blocks[0][0].code == "S21.G00.54.001"
+
     def test_s54_blocks_on_establishment(self, single_establishment_text):
         result = parse(single_establishment_text)
         est = result.establishments[0]

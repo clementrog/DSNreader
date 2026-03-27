@@ -26,6 +26,7 @@ from dsn_extractor.normalize import normalize_decimal
 from dsn_extractor.organisms import (
     ORGANISM_REGISTRY,
     CTP_LABELS,
+    lookup_complementary_family_override,
     lookup_organism,
     lookup_ctp,
 )
@@ -102,13 +103,11 @@ def _classify_s20(
     # Rule 2: structural S22 linkage
     if organism_id in s22_organism_ids:
         return "urssaf"
-    # Rule 3/3b: structural S15 linkage
+    # Rule 3: structural S15 linkage → complementary universe.
+    # The business split mutuelle vs prevoyance is resolved later at the
+    # contract level, not guessed here from the organism alone.
     if organism_id in s15_organism_ids:
-        _, _, family = lookup_organism(organism_id)
-        if family in ("prevoyance", "mutuelle"):
-            return family
-        # Rule 3b: S15-linked but sub-type indeterminate
-        return "unclassified"
+        return "complementary"
     # Rule 4: registry fallback — only retraite (no structural aggregate path
     # exists for retraite complémentaire in the DSN data model)
     _, _, family = lookup_organism(organism_id)
@@ -274,6 +273,7 @@ def _compute_urssaf(
     component_total = Decimal(0)
     n_recalculated_ctps = 0
     has_ctp = False
+    non_calculable_ctp_count = 0
 
     if matching_s22_blocks:
         for s23 in all_s23_children:
@@ -312,6 +312,7 @@ def _compute_urssaf(
 
             if ctp_amount is None:
                 ctp_status = "non_calculable"
+                non_calculable_ctp_count += 1
             elif declared is not None and recomputed is not None:
                 ctp_delta = declared - recomputed
                 if not _within_tolerance(declared, recomputed, _TOL_001):
@@ -336,6 +337,14 @@ def _compute_urssaf(
             ))
 
     component_amount = component_total if has_ctp else None
+    component_comparison_complete = has_ctp and non_calculable_ctp_count == 0
+    if has_ctp and non_calculable_ctp_count > 0:
+        warnings.append(
+            f"partial_ctp_recalculation: {non_calculable_ctp_count} lignes non calculables"
+        )
+        # Keep line-level details, but do not present a partial subtotal as the
+        # full detailed amount in the top-level card.
+        component_amount = None
 
     # Deltas
     agg_vs_bord_delta: Decimal | None = None
@@ -359,15 +368,18 @@ def _compute_urssaf(
         ctrl1_ok = bordereau_amount is not None and _within_tolerance(
             aggregate_amount, bordereau_amount, _TOL_001
         )
-        # Control 2: bordereau vs sum(CTP) — dynamic tolerance
-        dynamic_tol = max(_TOL_001, _TOL_001 * n_recalculated_ctps)
-        ctrl2_ok = bordereau_amount is not None and component_amount is not None and _within_tolerance(
-            bordereau_amount, component_amount, dynamic_tol
-        )
-        if ctrl1_ok and ctrl2_ok:
-            status = "ok"
+        if not component_comparison_complete:
+            status = "ok" if ctrl1_ok else "ecart"
         else:
-            status = "ecart"
+            # Control 2: bordereau vs sum(CTP) — dynamic tolerance
+            dynamic_tol = max(_TOL_001, _TOL_001 * n_recalculated_ctps)
+            ctrl2_ok = bordereau_amount is not None and component_amount is not None and _within_tolerance(
+                bordereau_amount, component_amount, dynamic_tol
+            )
+            if ctrl1_ok and ctrl2_ok:
+                status = "ok"
+            else:
+                status = "ecart"
 
     if has_regularization:
         warnings.append(REGULARIZATION_WARNING)
@@ -473,7 +485,6 @@ def _build_s70_map(
 
 
 def _compute_complementary(
-    family: str,
     organism_id: str,
     s20_blocks: list[BlockGroup],
     est_groups: EstablishmentBlockGroups,
@@ -483,13 +494,13 @@ def _compute_complementary(
     s70_map: dict[str, str],
     s70_warnings: list[str],
 ) -> list[ContributionComparisonItem]:
-    """Compute reconciliation for a prevoyance or mutuelle organism.
+    """Compute reconciliation for a complementary organism.
 
     Accepts all S20 blocks for this organism. Merges aggregate amounts and S55
     children across blocks, then emits one item per unique
     (organism_id, contract_ref, adhesion_id) key from S15.
     """
-    label, _, _ = lookup_organism(organism_id)
+    label, _, registry_family = lookup_organism(organism_id)
     has_regularization = False
 
     # Bridge-link validation
@@ -541,6 +552,7 @@ def _compute_complementary(
 
     # If no S15 contracts found, produce a single non-split item
     if not org_contracts:
+        fallback_family = registry_family if registry_family in ("prevoyance", "mutuelle") else "unclassified"
         warnings = list(base_warnings)
         comp_total = Decimal(0)
         has_comp = False
@@ -556,7 +568,7 @@ def _compute_complementary(
             warnings.append(REGULARIZATION_WARNING)
 
         return [ContributionComparisonItem(
-            family=family,
+            family=fallback_family,
             organism_id=organism_id,
             organism_label=label,
             aggregate_amount=aggregate_amount,
@@ -597,6 +609,9 @@ def _compute_complementary(
     # One item per unique (contract_ref, adhesion_id)
     items: list[ContributionComparisonItem] = []
     for contract_ref, adhesion_id in org_contracts:
+        item_family = lookup_complementary_family_override(organism_id, contract_ref)
+        if item_family is None:
+            item_family = registry_family if registry_family in ("prevoyance", "mutuelle") else "unclassified"
         warnings = list(base_warnings)
         cref_shared = contract_ref in shared_crefs
 
@@ -630,9 +645,6 @@ def _compute_complementary(
                     affil_id = (_find_value(s78.records, "S21.G00.78.005") or "").strip()
                     linked_adhesion = s70_map.get(affil_id, "")
                     if linked_adhesion != adhesion_id:
-                        continue
-                    s78_contract = (_find_value(s78.records, "S21.G00.78.006") or "").strip()
-                    if s78_contract and s78_contract != contract_ref:
                         continue
 
                     for s81 in s78.children:
@@ -691,7 +703,7 @@ def _compute_complementary(
             warnings.append(REGULARIZATION_WARNING)
 
         items.append(ContributionComparisonItem(
-            family=family,
+            family=item_family,
             organism_id=organism_id,
             organism_label=label,
             aggregate_amount=aggregate_amount if len(org_contracts) == 1 else None,
@@ -892,8 +904,7 @@ def compute_contribution_comparisons(
     items: list[ContributionComparisonItem] = []
     dgfip_s20_blocks: list[BlockGroup] = []
     urssaf_s20_by_org: dict[str, list[BlockGroup]] = {}
-    prevoyance_s20_by_org: dict[str, list[BlockGroup]] = {}
-    mutuelle_s20_by_org: dict[str, list[BlockGroup]] = {}
+    complementary_s20_by_org: dict[str, list[BlockGroup]] = {}
     retraite_s20: list[tuple[str, BlockGroup]] = []
 
     for s20 in est_groups.s20_blocks:
@@ -907,10 +918,8 @@ def compute_contribution_comparisons(
             dgfip_s20_blocks.append(s20)
         elif family == "urssaf":
             urssaf_s20_by_org.setdefault(organism_id, []).append(s20)
-        elif family == "prevoyance":
-            prevoyance_s20_by_org.setdefault(organism_id, []).append(s20)
-        elif family == "mutuelle":
-            mutuelle_s20_by_org.setdefault(organism_id, []).append(s20)
+        elif family == "complementary":
+            complementary_s20_by_org.setdefault(organism_id, []).append(s20)
         elif family == "retraite":
             retraite_s20.append((organism_id, s20))
         else:
@@ -932,17 +941,10 @@ def compute_contribution_comparisons(
     for org_id, s20_list in urssaf_s20_by_org.items():
         items.append(_compute_urssaf(org_id, s20_list, est_groups.s22_blocks, est_groups))
 
-    # Prevoyance
-    for org_id, s20_list in prevoyance_s20_by_org.items():
+    # Complementary (family resolved per contract)
+    for org_id, s20_list in complementary_s20_by_org.items():
         items.extend(_compute_complementary(
-            "prevoyance", org_id, s20_list, est_groups, est_block.employee_blocks,
-            s15_entries, s15_warnings, s70_map, s70_warnings,
-        ))
-
-    # Mutuelle
-    for org_id, s20_list in mutuelle_s20_by_org.items():
-        items.extend(_compute_complementary(
-            "mutuelle", org_id, s20_list, est_groups, est_block.employee_blocks,
+            org_id, s20_list, est_groups, est_block.employee_blocks,
             s15_entries, s15_warnings, s70_map, s70_warnings,
         ))
 

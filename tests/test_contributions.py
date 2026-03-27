@@ -23,11 +23,14 @@ from dsn_extractor.models import (
     DSNOutput,
 )
 from dsn_extractor.organisms import (
+    COMPLEMENTARY_FAMILY_OVERRIDES,
     CTP_LABELS,
     ORGANISM_REGISTRY,
     TYPE_CODE_TO_FAMILY,
     _load_registry,
+    lookup_complementary_family_override,
     _DATA_DIR,
+    _COMPLEMENTARY_FAMILY_OVERRIDES_TSV,
     _TSV_NAME,
 )
 from dsn_extractor.parser import DSNRecord, EmployeeBlock, EstablishmentBlock
@@ -65,8 +68,15 @@ class TestArtifactValidation:
         tsv_path = _DATA_DIR / _TSV_NAME
         assert tsv_path.is_file(), f"Canonical artifact missing: {tsv_path}"
 
+    def test_complementary_family_overrides_tsv_exists(self):
+        tsv_path = _DATA_DIR / _COMPLEMENTARY_FAMILY_OVERRIDES_TSV
+        assert tsv_path.is_file(), f"Canonical artifact missing: {tsv_path}"
+
     def test_registry_populated(self):
         assert len(ORGANISM_REGISTRY) > 0
+
+    def test_complementary_family_overrides_populated(self):
+        assert len(COMPLEMENTARY_FAMILY_OVERRIDES) > 0
 
     def test_registry_matches_tsv_exactly(self):
         """Read TSV row-by-row and compare against ORGANISM_REGISTRY."""
@@ -118,6 +128,12 @@ class TestArtifactValidation:
             k for k, v in ORGANISM_REGISTRY.items() if v[2] == "retraite"
         ]
         assert len(retraite_entries) > 0
+
+    def test_alan_health_contract_override_present(self):
+        assert (
+            lookup_complementary_family_override("AALAN1", "SANTE0000041844")
+            == "mutuelle"
+        )
 
     def test_deterministic_keys(self):
         """Registry keys are unique (guaranteed by dict, but explicit test)."""
@@ -214,6 +230,27 @@ class TestBlockGroups:
         assert len(groups.s78_blocks) == 1
         assert len(groups.s78_blocks[0].children) == 1  # S81 attached to S78
         assert not any("orphan" in w for w in groups.warnings)
+
+    def test_s70_restarts_when_suffix_order_resets(self):
+        emp = _emp(
+            _r("S21.G00.30.001", "12345", 1),
+            _r("S21.G00.70.005", "Ensemble du personnel", 2),
+            _r("S21.G00.70.012", "2", 3),
+            _r("S21.G00.70.013", "101", 4),
+            _r("S21.G00.70.004", "V335004", 5),
+            _r("S21.G00.70.012", "1", 6),
+            _r("S21.G00.70.013", "100", 7),
+        )
+        groups = group_employee_blocks(emp)
+
+        assert len(groups.s70_blocks) == 2
+        first = {r.code: r.raw_value for r in groups.s70_blocks[0].records}
+        second = {r.code: r.raw_value for r in groups.s70_blocks[1].records}
+        assert first["S21.G00.70.012"] == "2"
+        assert first["S21.G00.70.013"] == "101"
+        assert second["S21.G00.70.004"] == "V335004"
+        assert second["S21.G00.70.012"] == "1"
+        assert second["S21.G00.70.013"] == "100"
 
     def test_s20_s22_s23_chain(self):
         est = _est(
@@ -597,6 +634,28 @@ class TestURSSAF:
         assert urssaf.component_amount == Decimal("219.00")
         assert urssaf.details[0].computed_amount == Decimal("219.00")
 
+    def test_urssaf_partial_ctp_recalculation_hides_partial_component_total(self):
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "5000.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "5000.00", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "10.00", 7),
+            _r("S21.G00.23.004", "1000.00", 8),
+            _r("S21.G00.23.001", "260", 9),
+            _r("S21.G00.23.002", "920", 10),
+            _r("S21.G00.23.004", "4000.00", 11),
+        )
+        cc = compute_contribution_comparisons(est)
+        urssaf = [i for i in cc.items if i.family == "urssaf"][0]
+
+        assert urssaf.component_amount is None
+        assert urssaf.bordereau_vs_component_delta is None
+        assert any("partial_ctp_recalculation" in w for w in urssaf.warnings)
+        assert urssaf.status == "ok"
+
 
 class TestRetraite:
     def test_retraite_bases_02_03_with_negatives(self):
@@ -908,6 +967,77 @@ class TestRegressionMultiContract:
                 assert item.component_amount == Decimal("600.00")
             elif item.contract_ref == "CONTRAT_B":
                 assert item.component_amount == Decimal("400.00")
+
+    def test_individual_matching_uses_affiliation_not_s78_contract_number(self):
+        est = _est(
+            _r("S21.G00.15.001", "CONTRAT_PREV", 1),
+            _r("S21.G00.15.002", "P0942", 2),
+            _r("S21.G00.15.005", "ADH_PREV", 3),
+            _r("S21.G00.20.001", "P0942", 10),
+            _r("S21.G00.20.005", "500.00", 11),
+            _r("S21.G00.55.001", "500.00", 12),
+            _r("S21.G00.55.003", "CONTRAT_PREV", 13),
+            employees=[
+                _emp(
+                    _r("S21.G00.30.001", "12345", 20),
+                    _r("S21.G00.70.001", "1", 21),
+                    _r("S21.G00.70.012", "AFF_PREV", 22),
+                    _r("S21.G00.70.013", "ADH_PREV", 23),
+                    _r("S21.G00.78.001", "31", 30),
+                    _r("S21.G00.78.005", "AFF_PREV", 31),
+                    # S78.006 is the employment-contract number, not S15.001.
+                    _r("S21.G00.78.006", "CTR_SALARIE_2025", 32),
+                    _r("S21.G00.81.001", "059", 33),
+                    _r("S21.G00.81.004", "500.00", 34),
+                ),
+            ],
+        )
+        cc = compute_contribution_comparisons(est)
+        prev = [i for i in cc.items if i.family == "prevoyance"]
+        assert len(prev) == 1
+        item = prev[0]
+        assert item.individual_amount == Decimal("500.00")
+        assert item.status == "ok"
+
+    def test_complementary_family_can_differ_by_contract_for_same_organism(self):
+        est = _est(
+            _r("S21.G00.15.001", "SANTE0000041844", 1),
+            _r("S21.G00.15.002", "AALAN1", 2),
+            _r("S21.G00.15.005", "ADH_SANTE", 3),
+            _r("S21.G00.15.001", "PREV_CONTRAT_X", 4),
+            _r("S21.G00.15.002", "AALAN1", 5),
+            _r("S21.G00.15.005", "ADH_PREV", 6),
+            _r("S21.G00.20.001", "AALAN1", 10),
+            _r("S21.G00.20.005", "1000.00", 11),
+            _r("S21.G00.55.001", "600.00", 12),
+            _r("S21.G00.55.003", "SANTE0000041844", 13),
+            _r("S21.G00.55.001", "400.00", 14),
+            _r("S21.G00.55.003", "PREV_CONTRAT_X", 15),
+            employees=[
+                _emp(
+                    _r("S21.G00.30.001", "12345", 20),
+                    _r("S21.G00.70.001", "1", 21),
+                    _r("S21.G00.70.012", "AFF_SANTE", 22),
+                    _r("S21.G00.70.013", "ADH_SANTE", 23),
+                    _r("S21.G00.70.001", "2", 24),
+                    _r("S21.G00.70.012", "AFF_PREV", 25),
+                    _r("S21.G00.70.013", "ADH_PREV", 26),
+                    _r("S21.G00.78.001", "31", 30),
+                    _r("S21.G00.78.005", "AFF_SANTE", 31),
+                    _r("S21.G00.81.001", "059", 32),
+                    _r("S21.G00.81.004", "600.00", 33),
+                    _r("S21.G00.78.001", "31", 40),
+                    _r("S21.G00.78.005", "AFF_PREV", 41),
+                    _r("S21.G00.81.001", "059", 42),
+                    _r("S21.G00.81.004", "400.00", 43),
+                ),
+            ],
+        )
+        cc = compute_contribution_comparisons(est)
+        by_contract = {i.contract_ref: i for i in cc.items if i.organism_id == "AALAN1"}
+
+        assert by_contract["SANTE0000041844"].family == "mutuelle"
+        assert by_contract["PREV_CONTRAT_X"].family == "prevoyance"
 
 
 class TestRegressionSameContractDifferentAdhesion:

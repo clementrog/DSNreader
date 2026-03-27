@@ -177,18 +177,20 @@ def segment(records: list[DSNRecord], skipped_lines: list[tuple[int, str]]) -> P
             )
             continue
 
-        # 5. S54 amount blocks — establishment-scoped
+        # 5. S54 amount blocks
+        #
+        # In the project fixtures, S54 blocks live at establishment level.
+        # In real DSNs, they can also appear mid-employee without ending the
+        # surrounding employee context. We therefore group S54 separately
+        # without flushing the active employee.
         if code.startswith(S54_PREFIX):
             if code == "S21.G00.54.001":
-                # New S54 group — flush employee and previous S54 group
-                _flush_employee()
                 _flush_s54_group()
                 current_s54_group = [record]
             elif current_s54_group is not None:
                 current_s54_group.append(record)
             else:
                 # Orphan S54 continuation record without a .001 start
-                _flush_employee()
                 current_s54_group = [record]
             continue
 

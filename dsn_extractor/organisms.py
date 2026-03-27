@@ -36,6 +36,7 @@ TYPE_CODE_TO_FAMILY: dict[str, str] = {
 
 _DATA_DIR = Path(__file__).parent / "data"
 _TSV_NAME = "organisms_reference.tsv"
+_COMPLEMENTARY_FAMILY_OVERRIDES_TSV = "complementary_family_overrides.tsv"
 
 
 def _load_registry(tsv_path: Path) -> dict[str, tuple[str, str, str]]:
@@ -113,6 +114,59 @@ ORGANISM_REGISTRY: dict[str, tuple[str, str, str]] = _load_registry(
     _DATA_DIR / _TSV_NAME
 )
 
+
+def _load_complementary_family_overrides(
+    tsv_path: Path,
+) -> dict[tuple[str, str], str]:
+    """Load explicit complementary family overrides keyed by organism+contract."""
+    if not tsv_path.is_file():
+        raise RuntimeError(f"{_COMPLEMENTARY_FAMILY_OVERRIDES_TSV} not found at {tsv_path}")
+
+    lines = tsv_path.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        raise RuntimeError(f"{_COMPLEMENTARY_FAMILY_OVERRIDES_TSV} is empty")
+
+    overrides: dict[tuple[str, str], str] = {}
+    for line_num, raw_line in enumerate(lines, start=1):
+        if not raw_line.strip():
+            continue
+        cols = raw_line.split("\t")
+        if cols[0].strip().lower() == "organism_id":
+            raise RuntimeError(
+                f"{_COMPLEMENTARY_FAMILY_OVERRIDES_TSV} line {line_num}: contains header row — remove it"
+            )
+        if len(cols) != 3:
+            raise RuntimeError(
+                f"{_COMPLEMENTARY_FAMILY_OVERRIDES_TSV} line {line_num}: expected 3 columns, got {len(cols)}"
+            )
+        organism_id = cols[0].strip()
+        contract_ref = cols[1].strip()
+        family = cols[2].strip()
+        if not organism_id or not contract_ref or not family:
+            raise RuntimeError(
+                f"{_COMPLEMENTARY_FAMILY_OVERRIDES_TSV} line {line_num}: missing organism_id, contract_ref or family"
+            )
+        if family not in {"prevoyance", "mutuelle"}:
+            raise RuntimeError(
+                f"{_COMPLEMENTARY_FAMILY_OVERRIDES_TSV} line {line_num}: unsupported family '{family}'"
+            )
+        key = (organism_id, contract_ref)
+        if key in overrides:
+            raise RuntimeError(
+                f"{_COMPLEMENTARY_FAMILY_OVERRIDES_TSV}: duplicate key {key!r} at line {line_num}"
+            )
+        overrides[key] = family
+
+    if not overrides:
+        raise RuntimeError(f"{_COMPLEMENTARY_FAMILY_OVERRIDES_TSV} is empty")
+
+    return overrides
+
+
+COMPLEMENTARY_FAMILY_OVERRIDES: dict[tuple[str, str], str] = _load_complementary_family_overrides(
+    _DATA_DIR / _COMPLEMENTARY_FAMILY_OVERRIDES_TSV
+)
+
 # ---------------------------------------------------------------------------
 # CTP labels (from publicodes 13.3 — S21.G00.23 cotisation agrégée)
 # ---------------------------------------------------------------------------
@@ -164,3 +218,11 @@ def lookup_organism(organism_id: str) -> tuple[str | None, str | None, str | Non
 def lookup_ctp(ctp_code: str) -> str | None:
     """Return CTP label or None if unknown."""
     return CTP_LABELS.get(ctp_code)
+
+
+def lookup_complementary_family_override(
+    organism_id: str,
+    contract_ref: str,
+) -> str | None:
+    """Return explicit family override for one complementary contract."""
+    return COMPLEMENTARY_FAMILY_OVERRIDES.get((organism_id, contract_ref))

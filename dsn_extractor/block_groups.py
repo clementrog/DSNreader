@@ -188,6 +188,11 @@ def group_employee_blocks(emp_block: EmployeeBlock) -> EmployeeBlockGroups:
 
     S79 records are ignored (they appear between S78 and S81 but are not used
     for reconciliation and must not break the 78→81 parent-child linkage).
+
+    S70 has no ``.001`` starter in the normative layout. Real files emit its
+    fields in ascending suffix order, so a new S70 block starts on the first
+    S70 record after a non-S70 record, and also whenever the suffix order
+    restarts (for example ``...70.013`` followed by ``...70.004``).
     """
     result = EmployeeBlockGroups()
 
@@ -195,6 +200,7 @@ def group_employee_blocks(emp_block: EmployeeBlock) -> EmployeeBlockGroups:
     current_s70: BlockGroup | None = None
     current_s78: BlockGroup | None = None
     current_s81: BlockGroup | None = None
+    previous_s70_suffix: int | None = None
 
     def _flush_s50() -> None:
         nonlocal current_s50
@@ -203,10 +209,11 @@ def group_employee_blocks(emp_block: EmployeeBlock) -> EmployeeBlockGroups:
             current_s50 = None
 
     def _flush_s70() -> None:
-        nonlocal current_s70
+        nonlocal current_s70, previous_s70_suffix
         if current_s70 is not None:
             result.s70_blocks.append(current_s70)
             current_s70 = None
+        previous_s70_suffix = None
 
     def _flush_s81() -> None:
         nonlocal current_s81
@@ -240,11 +247,15 @@ def group_employee_blocks(emp_block: EmployeeBlock) -> EmployeeBlockGroups:
 
         # S21.G00.70 — affiliation prévoyance/mutuelle
         if code.startswith("S21.G00.70."):
-            if code == "S21.G00.70.001":
+            suffix = int(code.rsplit(".", 1)[1])
+            if current_s70 is None or (
+                previous_s70_suffix is not None and suffix <= previous_s70_suffix
+            ):
                 _flush_s70()
                 current_s70 = BlockGroup(prefix="S21.G00.70", records=[record])
             elif current_s70 is not None:
                 current_s70.records.append(record)
+            previous_s70_suffix = suffix
             continue
 
         # S21.G00.78 — base assujettie
