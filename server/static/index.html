@@ -68,7 +68,7 @@
         <h1 class="results-header__company" id="header-company"></h1>
         <div class="results-header__details">
           <span class="mono" id="header-siret"></span>
-          <span class="mono" id="header-period"></span>
+          <span id="header-period"></span>
         </div>
       </div>
       <button class="btn btn--secondary" type="button" data-action="reset">Nouveau fichier</button>
@@ -340,22 +340,10 @@
     <section class="dashboard-section dashboard-section--no-top" id="section-contributions">
       <h2 class="dashboard-section__title">Rapprochement cotisations</h2>
 
-      <div class="card-row card-row--third">
-        <div class="summary-card">
-          <span class="summary-card__label">OK</span>
-          <span class="summary-card__value" id="cc-ok-count">0</span>
-        </div>
-        <div class="summary-card">
-          <span class="summary-card__label">&#201;carts</span>
-          <span class="summary-card__value" id="cc-mismatch-count">0</span>
-        </div>
-        <div class="summary-card">
-          <span class="summary-card__label">Warnings</span>
-          <span class="summary-card__value" id="cc-warning-count">0</span>
-        </div>
+      <div class="controle-sticky-header">
+        <div id="cc-trust-banner"></div>
+        <nav id="contrib-family-tabs" class="tab-bar tab-bar--sub"></nav>
       </div>
-
-      <nav id="contrib-family-tabs" class="tab-bar tab-bar--sub"></nav>
 
       <div class="contrib-view">
         <div id="contrib-family-panels"></div>

@@ -118,7 +118,8 @@
     activeEstIdx: 0,
     activeContributionFamily: "urssaf",
     activePage: "controle",
-    contribFilterEcartsOnly: false,
+    contribFilterEcartsOnly: true,
+    expandedContribItems: {},
   };
 
   // ── DOM refs (cached once) ───────────────────────────────
@@ -195,9 +196,7 @@
   var $ptAbsencesNames = document.getElementById("pt-absences-names");
 
   // Contribution comparisons
-  var $ccOkCount = document.getElementById("cc-ok-count");
-  var $ccMismatchCount = document.getElementById("cc-mismatch-count");
-  var $ccWarningCount = document.getElementById("cc-warning-count");
+  var $ccTrustBanner = document.getElementById("cc-trust-banner");
   var $contribFamilyTabs = document.getElementById("contrib-family-tabs");
   var $contribFamilyPanels = document.getElementById("contrib-family-panels");
 
@@ -265,6 +264,19 @@
     if (rm) return "\u00c9cart taux";
     if (am) return "\u00c9cart montant";
     return "\u00c9cart";
+  }
+
+  function renderDetailStatusCell(detail) {
+    var status = detail.status || "non_calculable";
+    if (status === "ok") {
+      return '<span class="status-subtle status-subtle--ok" title="OK">&#10003;</span>';
+    }
+    if (status === "non_calculable") {
+      return '<span class="status-subtle status-subtle--muted" title="Non calculable">&mdash;</span>';
+    }
+    return '<span class="' + getStatusBadgeClass(status) + '">'
+      + escapeHtml(formatDetailStatusLabel(detail))
+      + '</span>';
   }
 
   function formatFamilyLabel(family) {
@@ -518,7 +530,7 @@
       return '<tr>'
         + '<td class="mono">' + escapeHtml(code) + '</td>'
         + '<td>' + escapeHtml(label) + '</td>'
-        + '<td class="mono">' + data[code] + '</td>'
+        + '<td>' + data[code] + '</td>'
         + '</tr>';
     }).join("");
   }
@@ -538,7 +550,7 @@
       return '<tr>'
         + '<td class="mono">' + escapeHtml(code) + '</td>'
         + '<td>' + escapeHtml(label) + '</td>'
-        + '<td class="mono">' + data[code] + '</td>'
+        + '<td>' + data[code] + '</td>'
         + '</tr>';
     }).join("");
   }
@@ -627,7 +639,7 @@
       return '<tr>'
         + '<td class="mono">' + escapeHtml(code) + '</td>'
         + '<td>' + escapeHtml(label) + '</td>'
-        + '<td class="mono">' + codeData[code] + '</td>'
+        + '<td>' + codeData[code] + '</td>'
         + '</tr>';
     }).join("");
   }
@@ -643,7 +655,7 @@
       var label = labelMap[code] || code;
       return '<tr>'
         + '<td>' + escapeHtml(label) + ' <span class="mono">(' + escapeHtml(code) + ')</span></td>'
-        + '<td class="mono">' + codeData[code] + '</td>'
+        + '<td>' + codeData[code] + '</td>'
         + '</tr>';
     }).join("");
   }
@@ -691,9 +703,9 @@
       var label = COMPLEXITY_LABELS[key] || key;
       return '<tr>'
         + '<td>' + escapeHtml(label) + '</td>'
-        + '<td class="mono">' + val + '</td>'
-        + '<td class="mono">\u00d7' + weight + '</td>'
-        + '<td class="mono">' + (val * weight) + '</td>'
+        + '<td>' + val + '</td>'
+        + '<td>\u00d7' + weight + '</td>'
+        + '<td>' + (val * weight) + '</td>'
         + '</tr>';
     }).join("");
   }
@@ -711,35 +723,108 @@
     var payload = getActiveContributionPayload() || {};
     var items = Array.isArray(payload.items) ? payload.items : [];
 
-    $ccOkCount.textContent = payload.ok_count != null
+    var okCount = payload.ok_count != null
       ? payload.ok_count
       : items.filter(function (item) { return item.status === "ok"; }).length;
-    $ccMismatchCount.textContent = payload.mismatch_count != null
+    var mismatchCount = payload.mismatch_count != null
       ? payload.mismatch_count
       : items.filter(function (item) { return item.status === "ecart"; }).length;
-    $ccWarningCount.textContent = payload.warning_count != null
+    var warningCount = payload.warning_count != null
       ? payload.warning_count
       : countComparisonWarnings(items);
 
+    renderTrustBanner(okCount, mismatchCount, warningCount);
     renderContributionFamilyTabs(items);
     renderContributionFamilyPanels(items);
   }
 
-  function renderContributionFamilyTabs(items) {
-    var countsByFamily = {};
+  function renderTrustBanner(okCount, mismatchCount, warningCount) {
+    var trustLevel, verdict;
+    if (mismatchCount > 0) {
+      trustLevel = "alert";
+      verdict = "\u00c9carts d\u00e9tect\u00e9s";
+    } else if (warningCount > 0) {
+      trustLevel = "review";
+      verdict = "Points de vigilance";
+    } else {
+      trustLevel = "trusted";
+      verdict = "DSN conforme";
+    }
+
+    var iconMap = { trusted: "&#10003;", review: "&#9888;", alert: "&#10007;" };
+
+    $ccTrustBanner.innerHTML = '<div class="trust-banner trust-banner--' + trustLevel + '">'
+      + '<div class="trust-banner__verdict">'
+      + '<span class="trust-banner__icon">' + iconMap[trustLevel] + '</span>'
+      + '<span class="trust-banner__label">' + verdict + '</span>'
+      + '</div>'
+      + '<div class="trust-banner__counts">'
+      + '<span class="trust-count trust-count--ok">' + okCount + ' OK</span>'
+      + '<span class="trust-banner__sep">\u00b7</span>'
+      + '<span class="trust-count trust-count--ecart">' + mismatchCount + ' \u00e9cart(s)</span>'
+      + '<span class="trust-banner__sep">\u00b7</span>'
+      + '<span class="trust-count trust-count--warning">' + warningCount + ' avert.</span>'
+      + '</div>'
+      + '</div>';
+  }
+
+  function getInitialContributionFamily(data) {
+    var payload = (data && data.global_contribution_comparisons) || {};
+    var items = Array.isArray(payload.items) ? payload.items : [];
+    var meta = computeFamilyMeta(items);
+    var statusOrder = { ecart: 0, warning: 1, ok: 2, empty: 3 };
+    var best = "urssaf";
+    var bestRank = 3;
+    CONTRIBUTION_FAMILIES.forEach(function (f) {
+      var rank = statusOrder[meta[f].worstStatus] || 3;
+      if (rank < bestRank) { bestRank = rank; best = f; }
+    });
+    return best;
+  }
+
+  function computeFamilyMeta(items) {
+    var meta = {};
+    CONTRIBUTION_FAMILIES.forEach(function (f) {
+      meta[f] = { count: 0, ecartCount: 0, warningCount: 0, worstStatus: "empty" };
+    });
     (items || []).forEach(function (item) {
-      var family = item && item.family ? item.family : "";
-      countsByFamily[family] = (countsByFamily[family] || 0) + 1;
+      var f = item && item.family ? item.family : "";
+      if (!meta[f]) return;
+      meta[f].count++;
+      if (item.status === "ecart") meta[f].ecartCount++;
+      var w = collectComparisonWarnings(item);
+      if (w.length > 0) meta[f].warningCount++;
+    });
+    CONTRIBUTION_FAMILIES.forEach(function (f) {
+      var m = meta[f];
+      if (m.count === 0) m.worstStatus = "empty";
+      else if (m.ecartCount > 0) m.worstStatus = "ecart";
+      else if (m.warningCount > 0) m.worstStatus = "warning";
+      else m.worstStatus = "ok";
+    });
+    return meta;
+  }
+
+  function renderContributionFamilyTabs(items) {
+    var familyMeta = computeFamilyMeta(items);
+
+    // Sort: ecart first, then warning, then ok, then empty
+    var statusOrder = { ecart: 0, warning: 1, ok: 2, empty: 3 };
+    var sortedFamilies = CONTRIBUTION_FAMILIES.slice().sort(function (a, b) {
+      return (statusOrder[familyMeta[a].worstStatus] || 3)
+           - (statusOrder[familyMeta[b].worstStatus] || 3);
     });
 
-    $contribFamilyTabs.innerHTML = CONTRIBUTION_FAMILIES.map(function (family) {
+    $contribFamilyTabs.innerHTML = sortedFamilies.map(function (family) {
       var active = family === state.activeContributionFamily;
-      var count = countsByFamily[family] || 0;
+      var m = familyMeta[family];
+      var dotClass = 'family-dot family-dot--' + m.worstStatus;
       return '<button type="button" class="tab-bar__btn'
         + (active ? ' tab-bar__btn--active' : '')
         + '" data-family="' + escapeHtml(family) + '">'
+        + '<span class="' + dotClass + '"></span>'
         + escapeHtml(formatFamilyLabel(family))
-        + ' <span class="mono">(' + count + ')</span>'
+        + ' (' + m.count + ')'
         + '</button>';
     }).join("");
   }
@@ -789,33 +874,129 @@
         + '</div>';
     }
 
-    return '<div class="contrib-stack">' + items.map(renderContributionItem).join("") + '</div>';
+    var allOk = items.every(function (item) { return item.status === "ok" && collectComparisonWarnings(item).length === 0; });
+    var hint = allOk
+      ? '<div class="contrib-all-ok-hint">Tous les organismes sont conformes \u2014 cliquez pour voir le d\u00e9tail</div>'
+      : '';
+
+    return '<div class="contrib-stack">' + items.map(renderContributionItem).join("") + '</div>' + hint;
+  }
+
+  function getItemStableKey(item) {
+    return (item.family || "") + ":" + (item.organism_id || "") + ":" + (item.contract_ref || "") + ":" + (item.adhesion_id || "");
+  }
+
+  function getItemDefaultExpanded(item) {
+    return item.status !== "ok" || collectComparisonWarnings(item).length > 0;
+  }
+
+  function isItemExpanded(item) {
+    var key = getItemStableKey(item);
+    if (state.expandedContribItems.hasOwnProperty(key)) {
+      return state.expandedContribItems[key];
+    }
+    return getItemDefaultExpanded(item);
+  }
+
+  function renderContributionSummaryMetrics(item) {
+    var parts = [];
+    var deltas = [
+      { label: "\u0394 agr./bord.", value: item.aggregate_vs_bordereau_delta },
+      { label: "\u0394 agr./comp.", value: item.aggregate_vs_component_delta },
+      { label: "\u0394 bord./comp.", value: item.bordereau_vs_component_delta },
+      { label: "\u0394 agr./ind.", value: item.aggregate_vs_individual_delta },
+    ];
+    deltas.forEach(function (d) {
+      if (d.value != null) {
+        var n = parseFloat(d.value);
+        if (!isNaN(n) && n !== 0) {
+          parts.push('<span class="contrib-metric contrib-metric--ecart">'
+            + escapeHtml(d.label) + ' ' + escapeHtml(formatAmount(d.value)) + '</span>');
+        }
+      }
+    });
+    if (parts.length === 0 && item.aggregate_amount != null) {
+      parts.push('<span class="contrib-metric">'
+        + escapeHtml(formatAmount(item.aggregate_amount)) + '</span>');
+    }
+    return parts.join('<span class="contrib-metric-sep">\u00b7</span>');
   }
 
   function renderContributionItem(item) {
     var title = item.organism_label || item.organism_id || formatFamilyLabel(item.family);
+    var itemKey = getItemStableKey(item);
+    var expanded = isItemExpanded(item);
+    var defaultExpanded = getItemDefaultExpanded(item);
+
+    // Full metadata for tooltip (always complete)
+    var fullMeta = [];
+    if (item.organism_id) fullMeta.push("Organisme : " + item.organism_id);
+    if (item.contract_ref) fullMeta.push("Contrat : " + item.contract_ref);
+    if (item.adhesion_id) fullMeta.push("Adh\u00e9sion : " + item.adhesion_id);
+    var titleAttr = fullMeta.length > 0 ? ' title="' + escapeHtml(fullMeta.join(' \u00b7 ')) + '"' : '';
+
+    // Visible metadata (scope-aware)
     var meta = [];
-    if (item.organism_id) meta.push("Organisme : " + item.organism_id);
-    if (item.contract_ref) meta.push("Contrat : " + item.contract_ref);
-    if (item.adhesion_id) meta.push("Adh\u00e9sion : " + item.adhesion_id);
+    if (item.organism_id && item.organism_id !== item.organism_label) {
+      meta.push("Organisme : " + item.organism_id);
+    }
+    if (state.scope !== "global") {
+      if (item.contract_ref) meta.push("Contrat : " + item.contract_ref);
+      if (item.adhesion_id) meta.push("Adh\u00e9sion : " + item.adhesion_id);
+    }
 
-    var warningList = collectComparisonWarnings(item);
+    // Primary delta for header
+    var primaryDelta = item.aggregate_vs_bordereau_delta
+      || item.aggregate_vs_component_delta
+      || item.bordereau_vs_component_delta
+      || item.aggregate_vs_individual_delta
+      || null;
+    var deltaHtml = '';
+    if (primaryDelta != null && item.status === 'ecart') {
+      var deltaVal = parseFloat(primaryDelta);
+      if (!isNaN(deltaVal) && deltaVal !== 0) {
+        deltaHtml = '<span class="contrib-item__delta">'
+          + escapeHtml(formatAmount(primaryDelta))
+          + '</span>';
+      }
+    }
 
-    return '<article class="contrib-item">'
-      + '<div class="contrib-item__header">'
+    // Total warning count (item + detail level) for summary badge
+    var allWarnings = collectComparisonWarnings(item);
+    var warningCountHtml = allWarnings.length > 0
+      ? '<span class="contrib-summary__warning-count">' + allWarnings.length + ' avert.</span>'
+      : '';
+
+    // Item-level warnings only for the warning box (detail warnings go inline in table)
+    var itemWarnings = Array.isArray(item.warnings) ? item.warnings : [];
+
+    return '<article class="contrib-item' + (expanded ? ' contrib-item--expanded' : '') + '"'
+      + ' data-item-id="' + escapeHtml(itemKey) + '"'
+      + ' data-default-expanded="' + (defaultExpanded ? 'true' : 'false') + '">'
+      + '<div class="contrib-summary" data-action="toggle-detail"' + titleAttr + '>'
+      + '<div class="contrib-summary__left">'
+      + '<span class="contrib-summary__chevron">&#9654;</span>'
       + '<div>'
       + '<div class="contrib-item__title">' + escapeHtml(title) + '</div>'
       + (meta.length > 0
-        ? '<div class="contrib-item__meta">' + escapeHtml(meta.join(' · ')) + '</div>'
+        ? '<div class="contrib-item__meta">' + escapeHtml(meta.join(' \u00b7 ')) + '</div>'
         : '')
       + '</div>'
+      + '</div>'
+      + '<div class="contrib-item__header-right">'
+      + '<div class="contrib-summary__metrics">' + renderContributionSummaryMetrics(item) + '</div>'
+      + warningCountHtml
+      + deltaHtml
       + '<span class="' + getStatusBadgeClass(item.status) + '">'
       + escapeHtml(formatStatusLabel(item.status))
       + '</span>'
       + '</div>'
+      + '</div>'
+      + '<div class="contrib-detail-body' + (expanded ? '' : ' contrib-detail-body--collapsed') + '">'
+      + (itemWarnings.length > 0 ? renderContributionWarnings(itemWarnings) : '')
       + renderContributionMetrics(item)
-      + (warningList.length > 0 ? renderContributionWarnings(warningList) : '')
       + renderContributionDetailsTable(item)
+      + '</div>'
       + '</article>';
   }
 
@@ -874,33 +1055,106 @@
       + '<span class="contrib-filter-count">' + ecartRows + ' \u00e9cart(s) / ' + totalRows + ' lignes</span>'
       + '</div>';
 
+    var emptyMsg = filterActive && totalRows > 0
+      ? 'Aucun \u00e9cart d\u00e9tect\u00e9 sur ' + totalRows + ' lignes \u2014 d\u00e9cochez le filtre pour tout afficher'
+      : 'Aucun d\u00e9tail disponible';
+
     var body = visibleDetails.length === 0
-      ? '<tr><td colspan="9" class="data-table__empty">Aucun d\u00e9tail disponible</td></tr>'
+      ? '<tr><td colspan="6" class="data-table__empty">' + emptyMsg + '</td></tr>'
       : visibleDetails.map(function (detail) {
-          var rmCls = detail.rate_mismatch ? ' cell-mismatch' : '';
-          var amCls = detail.amount_mismatch ? ' cell-mismatch' : '';
-          return '<tr>'
+          var rowCls = 'detail-row detail-row--' + (detail.status || 'ok');
+
+          // Assiette: amount + type as sublabel
+          var assietteLabel = detail.assiette_label || detail.assiette_qualifier || '';
+          var assietteTitle = assietteLabel ? ' title="' + escapeHtml(assietteLabel) + '"' : '';
+          var assietteHtml = escapeHtml(formatAmount(detail.base_amount))
+            + (assietteLabel ? '<span class="cell-sublabel">' + escapeHtml(assietteLabel) + '</span>' : '');
+
+          // Taux: merged (declared → expected if mismatch)
+          var tauxHtml, tauxTitle = '';
+          if (detail.rate_mismatch && detail.rate != null && detail.expected_rate != null) {
+            tauxHtml = '<span class="cell-mismatch">'
+              + escapeHtml(formatRate(detail.rate))
+              + ' <span class="cell-arrow">\u2192</span> '
+              + escapeHtml(formatRate(detail.expected_rate))
+              + '</span>';
+            tauxTitle = ' title="Taux DSN\u00a0: ' + escapeHtml(formatRate(detail.rate))
+              + ' \u2014 Taux r\u00e9f\u00e9rence\u00a0: ' + escapeHtml(formatRate(detail.expected_rate)) + '"';
+          } else {
+            tauxHtml = escapeHtml(formatRate(detail.rate));
+          }
+
+          // Montant: merged (declared → computed if mismatch)
+          var montantHtml, montantTitle = '';
+          if (detail.amount_mismatch && detail.declared_amount != null && detail.computed_amount != null) {
+            montantHtml = '<span class="cell-mismatch">'
+              + escapeHtml(formatAmount(detail.declared_amount))
+              + ' <span class="cell-arrow">\u2192</span> '
+              + escapeHtml(formatAmount(detail.computed_amount))
+              + '</span>';
+            montantTitle = ' title="Montant DSN\u00a0: ' + escapeHtml(formatAmount(detail.declared_amount))
+              + ' \u2014 Montant recalcul\u00e9\u00a0: ' + escapeHtml(formatAmount(detail.computed_amount)) + '"';
+          } else {
+            montantHtml = escapeHtml(formatAmount(detail.declared_amount));
+          }
+
+          // Delta column
+          var deltaHtml = '\u2014';
+          if (detail.delta != null) {
+            var dv = parseFloat(detail.delta);
+            if (!isNaN(dv) && dv !== 0) {
+              deltaHtml = '<span class="cell-delta">' + escapeHtml(formatAmount(detail.delta)) + '</span>';
+            }
+          }
+
+          var rowHtml = '<tr class="' + rowCls + '">'
             + '<td class="mono">' + escapeHtml(detail.mapped_code || detail.ctp_code || "\u2014") + '</td>'
             + '<td>' + escapeHtml(detail.label || "\u2014") + '</td>'
-            + '<td>' + escapeHtml(detail.assiette_label || detail.assiette_qualifier || "\u2014") + '</td>'
-            + '<td class="mono">' + escapeHtml(formatAmount(detail.base_amount)) + '</td>'
-            + '<td class="mono' + rmCls + '">' + escapeHtml(formatRate(detail.rate)) + '</td>'
-            + '<td class="mono' + rmCls + '">' + escapeHtml(formatRate(detail.expected_rate)) + '</td>'
-            + '<td class="mono' + amCls + '">' + escapeHtml(formatAmount(detail.declared_amount)) + '</td>'
-            + '<td class="mono' + amCls + '">' + escapeHtml(formatAmount(detail.computed_amount)) + '</td>'
-            + '<td><span class="' + getStatusBadgeClass(detail.status) + '">'
-            + escapeHtml(formatDetailStatusLabel(detail))
-            + '</span></td>'
+            + '<td class="mono"' + assietteTitle + '>' + assietteHtml + '</td>'
+            + '<td class="mono"' + tauxTitle + '>' + tauxHtml + '</td>'
+            + '<td class="mono"' + montantTitle + '>' + montantHtml + '</td>'
+            + '<td class="mono">' + deltaHtml + '</td>'
             + '</tr>';
+
+          // Inline detail-level warnings
+          if (detail.warnings && detail.warnings.length > 0) {
+            rowHtml += '<tr class="detail-warning-row">'
+              + '<td colspan="6">'
+              + detail.warnings.map(function (w) {
+                  return '<div class="inline-warning">'
+                    + '<span class="inline-warning__icon">&#9888;</span>'
+                    + '<span class="inline-warning__text">' + escapeHtml(String(w)) + '</span>'
+                    + '</div>';
+                }).join("")
+              + '</td></tr>';
+          }
+
+          return rowHtml;
         }).join("");
+
+    // Count warnings on filtered-out rows
+    var hiddenWarningCount = 0;
+    if (filterActive) {
+      details.forEach(function (d) {
+        if (!d.rate_mismatch && !d.amount_mismatch && d.warnings && d.warnings.length > 0) {
+          hiddenWarningCount += d.warnings.length;
+        }
+      });
+    }
+    var hiddenWarningNotice = hiddenWarningCount > 0
+      ? '<div class="contrib-hidden-warnings">'
+        + hiddenWarningCount + ' avertissement(s) sur des lignes masqu\u00e9es par le filtre'
+        + '</div>'
+      : '';
 
     return toolbar
       + '<div class="contrib-details-wrap">'
       + '<table class="data-table contrib-details-table" style="margin-top: var(--sp-4);">'
-      + '<thead><tr><th>Code DUCS</th><th>Libell\u00e9</th><th>Type d\u2019assiette</th><th>Assiette</th><th>Taux DSN</th><th>Taux ref</th><th>Montant DSN</th><th>Montant recalcul\u00e9</th><th>Statut</th></tr></thead>'
+      + '<thead><tr><th>Code</th><th>Libell\u00e9</th><th>Assiette</th><th>Taux</th><th>Montant</th><th>Delta</th></tr></thead>'
       + '<tbody>' + body + '</tbody>'
       + '</table>'
-      + '</div>';
+      + '</div>'
+      + hiddenWarningNotice;
   }
 
   function renderContributionDetailsTable(item) {
@@ -982,7 +1236,8 @@
         return;
       }
 
-      setState({ phase: "results", data: json, scope: "global", activeEstIdx: 0 });
+      var initialFamily = getInitialContributionFamily(json);
+      setState({ phase: "results", data: json, scope: "global", activeEstIdx: 0, activeContributionFamily: initialFamily });
     } catch (err) {
       setState({
         phase: "error",
@@ -1004,7 +1259,8 @@
       activeEstIdx: 0,
       activeContributionFamily: "urssaf",
       activePage: "controle",
-      contribFilterEcartsOnly: false,
+      contribFilterEcartsOnly: true,
+      expandedContribItems: {},
     });
   }
 
@@ -1066,7 +1322,7 @@
       var newScope = btn.dataset.scope;
       if (newScope === state.scope) return;
       if (newScope === "establishment" && state.data && state.data.establishments.length === 0) return;
-      setState({ scope: newScope, activeEstIdx: 0 });
+      setState({ scope: newScope, activeEstIdx: 0, expandedContribItems: {} });
     });
   });
 
@@ -1076,7 +1332,7 @@
     if (!btn) return;
     var idx = parseInt(btn.dataset.index, 10);
     if (idx !== state.activeEstIdx) {
-      setState({ activeEstIdx: idx });
+      setState({ activeEstIdx: idx, expandedContribItems: {} });
     }
   });
 
@@ -1086,6 +1342,36 @@
     var family = btn.dataset.family;
     if (!family || family === state.activeContributionFamily) return;
     setState({ activeContributionFamily: family });
+  });
+
+  $contribFamilyPanels.addEventListener("click", function (e) {
+    var summary = e.target.closest("[data-action='toggle-detail']");
+    if (!summary) return;
+    // Don't toggle when clicking on the filter checkbox
+    if (e.target.tagName === "INPUT") return;
+    var article = summary.closest(".contrib-item");
+    if (!article) return;
+    var itemId = article.dataset.itemId;
+    var body = article.querySelector(".contrib-detail-body");
+    if (!body) return;
+
+    // Direct DOM toggle for performance (no full re-render)
+    var isExpanded = article.classList.contains("contrib-item--expanded");
+    if (isExpanded) {
+      article.classList.remove("contrib-item--expanded");
+      body.classList.add("contrib-detail-body--collapsed");
+    } else {
+      article.classList.add("contrib-item--expanded");
+      body.classList.remove("contrib-detail-body--collapsed");
+    }
+
+    // Persist in state silently (no re-render)
+    var updated = {};
+    for (var k in state.expandedContribItems) {
+      updated[k] = state.expandedContribItems[k];
+    }
+    updated[itemId] = !isExpanded;
+    state.expandedContribItems = updated;
   });
 
   $contribFamilyPanels.addEventListener("change", function (e) {
