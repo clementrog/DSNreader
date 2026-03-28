@@ -808,14 +808,8 @@
   function renderContributionFamilyTabs(items) {
     var familyMeta = computeFamilyMeta(items);
 
-    // Sort: ecart first, then warning, then ok, then empty
-    var statusOrder = { ecart: 0, warning: 1, ok: 2, empty: 3 };
-    var sortedFamilies = CONTRIBUTION_FAMILIES.slice().sort(function (a, b) {
-      return (statusOrder[familyMeta[a].worstStatus] || 3)
-           - (statusOrder[familyMeta[b].worstStatus] || 3);
-    });
-
-    $contribFamilyTabs.innerHTML = sortedFamilies.map(function (family) {
+    // Fixed order: URSSAF, PAS, Prévoyance, Mutuelle, Retraite
+    $contribFamilyTabs.innerHTML = CONTRIBUTION_FAMILIES.map(function (family) {
       var active = family === state.activeContributionFamily;
       var m = familyMeta[family];
       var dotClass = 'family-dot family-dot--' + m.worstStatus;
@@ -887,7 +881,7 @@
   }
 
   function getItemDefaultExpanded(item) {
-    return item.status !== "ok" || collectComparisonWarnings(item).length > 0;
+    return true;
   }
 
   function isItemExpanded(item) {
@@ -972,6 +966,7 @@
 
     return '<article class="contrib-item' + (expanded ? ' contrib-item--expanded' : '') + '"'
       + ' data-item-id="' + escapeHtml(itemKey) + '"'
+      + ' data-status="' + (item.status || 'non_calculable') + '"'
       + ' data-default-expanded="' + (defaultExpanded ? 'true' : 'false') + '">'
       + '<div class="contrib-summary" data-action="toggle-detail"' + titleAttr + '>'
       + '<div class="contrib-summary__left">'

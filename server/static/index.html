@@ -13,7 +13,7 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
@@ -81,16 +81,16 @@
       <button class="page-nav__btn page-nav__btn--active" type="button" data-page="controle">Contr&#244;le de DSN</button>
     </nav>
 
-    <!-- Scope toggle -->
-    <div class="scope-toggle">
+    <!-- Scope toggle (hidden – global only) -->
+    <div class="scope-toggle" hidden>
       <button class="scope-toggle__btn scope-toggle__btn--active" type="button" data-scope="global">Global</button>
       <button class="scope-toggle__btn" type="button" data-scope="establishment">Par &#233;tablissement</button>
     </div>
 
-    <!-- Establishment tabs -->
+    <!-- Establishment tabs (hidden – global only) -->
     <nav id="establishment-tabs" class="tab-bar" hidden></nav>
 
-    <!-- Establishment detail (shown in per-establishment view) -->
+    <!-- Establishment detail (hidden – global only) -->
     <div id="establishment-detail" class="establishment-detail" hidden></div>
 
     <!-- Warnings banner -->
@@ -341,7 +341,7 @@
       <h2 class="dashboard-section__title">Rapprochement cotisations</h2>
 
       <div class="controle-sticky-header">
-        <div id="cc-trust-banner"></div>
+        <div id="cc-trust-banner" hidden></div>
         <nav id="contrib-family-tabs" class="tab-bar tab-bar--sub"></nav>
       </div>
 
