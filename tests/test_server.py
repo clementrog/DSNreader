@@ -124,6 +124,14 @@ class TestErrors:
         )
         assert r.status_code == 200
 
+    def test_edi_extension_accepted(self):
+        fixture = FIXTURES / "single_establishment.dsn"
+        r = client.post(
+            "/api/extract",
+            files={"file": ("data.edi", fixture.read_bytes(), "application/octet-stream")},
+        )
+        assert r.status_code == 200
+
     def test_oversized_file(self):
         # 10 MB + 1 byte
         big = b"x" * (10 * 1024 * 1024 + 1)

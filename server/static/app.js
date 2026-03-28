@@ -339,7 +339,7 @@
       $spinnerLabel.hidden = false;
       $dropzoneError.textContent = "";
     } else if (state.phase === "empty") {
-      $dropzoneLabel.textContent = "D\u00e9posez un fichier .dsn ou .txt ici";
+      $dropzoneLabel.textContent = "D\u00e9posez un fichier .dsn, .txt ou .edi ici";
       $dropzoneSublabel.textContent = "ou cliquez pour parcourir";
       $browseBtn.hidden = false;
       $spinner.hidden = true;
@@ -1180,7 +1180,7 @@
 
   function isDsnFile(file) {
     var name = file && file.name ? file.name.toLowerCase() : "";
-    return name.endsWith(".dsn") || name.endsWith(".txt");
+    return name.endsWith(".dsn") || name.endsWith(".txt") || name.endsWith(".edi");
   }
 
   var errorTimer = null;
@@ -1206,7 +1206,7 @@
 
   function handleFile(file) {
     if (!isDsnFile(file)) {
-      showDropzoneError("Seuls les fichiers .dsn ou .txt sont accept\u00e9s");
+      showDropzoneError("Seuls les fichiers .dsn, .txt ou .edi sont accept\u00e9s");
       return;
     }
     clearDropzoneError();
