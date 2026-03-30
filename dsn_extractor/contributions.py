@@ -71,6 +71,13 @@ def _within_tolerance(a: Decimal | None, b: Decimal | None, tol: Decimal) -> boo
     return abs(a - b) <= tol
 
 
+def _rounded_to_unit_ok(a: Decimal | None, b: Decimal | None) -> bool:
+    """Return True if abs(a - b) rounds to 0 at the euro level."""
+    if a is None or b is None:
+        return False
+    return abs(a - b).quantize(Decimal("1"), rounding=ROUND_HALF_UP) == 0
+
+
 REGULARIZATION_WARNING = (
     "Des régularisations DSN ont été détectées. Les éléments régularisés "
     "sur des mois précédents ne sont pas pris en compte correctement par "
@@ -247,7 +254,7 @@ def _compute_pas(
         status = "manquant_agrege"
     elif individual_amount is None:
         status = "manquant_individuel"
-    elif _within_tolerance(aggregate_amount, individual_amount, _TOL_001):
+    elif _rounded_to_unit_ok(aggregate_amount, individual_amount):
         status = "ok"
     else:
         status = "ecart"
@@ -457,16 +464,17 @@ def _compute_urssaf(
         status = "manquant_detail"
     else:
         # Control 1: versement vs bordereau
-        ctrl1_ok = bordereau_amount is not None and _within_tolerance(
-            aggregate_amount, bordereau_amount, _TOL_001
+        ctrl1_ok = bordereau_amount is not None and _rounded_to_unit_ok(
+            aggregate_amount, bordereau_amount
         )
         if not component_comparison_complete:
             status = "ok" if ctrl1_ok else "ecart"
         else:
-            # Control 2: bordereau vs sum(CTP) — dynamic tolerance
-            dynamic_tol = max(_TOL_001, _TOL_001 * n_recalculated_ctps)
-            ctrl2_ok = bordereau_amount is not None and component_amount is not None and _within_tolerance(
-                bordereau_amount, component_amount, dynamic_tol
+            # Control 2: bordereau vs sum(CTP) — arrondi à l'entier
+            ctrl2_ok = (
+                bordereau_amount is not None
+                and component_amount is not None
+                and _rounded_to_unit_ok(bordereau_amount, component_amount)
             )
             if ctrl1_ok and ctrl2_ok:
                 status = "ok"

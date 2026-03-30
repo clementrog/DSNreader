@@ -685,6 +685,149 @@ class TestURSSAF:
         assert urssaf.status == "ok"
 
 
+class TestRoundingTolerancePAS:
+    """Arrondi à l'entier: PAS aggregate vs individual tolerance is ±0.49€."""
+
+    def _make_pas(self, aggregate: str, individual: str):
+        est = _est(
+            _r("S21.G00.20.001", "DGFIP", 1),
+            _r("S21.G00.20.005", aggregate, 2),
+            employees=[
+                _emp(
+                    _r("S21.G00.30.001", "12345", 10),
+                    _r("S21.G00.30.002", "DUPONT", 11),
+                    _r("S21.G00.50.009", individual, 12),
+                ),
+            ],
+        )
+        cc = compute_contribution_comparisons(est)
+        return [i for i in cc.items if i.family == "pas"][0]
+
+    def test_pas_exact_match_ok(self):
+        pas = self._make_pas("300.00", "300.00")
+        assert pas.status == "ok"
+
+    def test_pas_below_threshold_ok(self):
+        pas = self._make_pas("300.35", "300.00")
+        assert pas.status == "ok"
+        assert pas.aggregate_vs_individual_delta == Decimal("0.35")
+
+    def test_pas_last_accepted_centime_ok(self):
+        """0.49€ is the last accepted centime — rounds to 0."""
+        pas = self._make_pas("300.49", "300.00")
+        assert pas.status == "ok"
+        assert pas.aggregate_vs_individual_delta == Decimal("0.49")
+
+    def test_pas_at_threshold_ecart(self):
+        """0.50€ rounds to 1 (ROUND_HALF_UP) → écart."""
+        pas = self._make_pas("300.50", "300.00")
+        assert pas.status == "ecart"
+        assert pas.aggregate_vs_individual_delta == Decimal("0.50")
+
+    def test_pas_above_threshold_ecart(self):
+        pas = self._make_pas("300.51", "300.00")
+        assert pas.status == "ecart"
+
+    def test_pas_negative_delta_below_threshold_ok(self):
+        pas = self._make_pas("299.65", "300.00")
+        assert pas.status == "ok"
+        assert pas.aggregate_vs_individual_delta == Decimal("-0.35")
+
+
+class TestRoundingToleranceURSSAF:
+    """Arrondi à l'entier: URSSAF ctrl1/ctrl2 tolerance is ±0.49€."""
+
+    def _make_urssaf(self, aggregate: str, bordereau: str, *ctp_amounts: str):
+        records = [
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", aggregate, 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", bordereau, 4),
+        ]
+        line = 5
+        for amt in ctp_amounts:
+            records.append(_r("S21.G00.23.001", "100", line))
+            records.append(_r("S21.G00.23.005", amt, line + 1))
+            line += 2
+        est = _est(*records)
+        cc = compute_contribution_comparisons(est)
+        return [i for i in cc.items if i.family == "urssaf"][0]
+
+    def test_urssaf_ctrl1_below_threshold_ok(self):
+        urssaf = self._make_urssaf("5000.35", "5000.00", "5000.00")
+        assert urssaf.status == "ok"
+
+    def test_urssaf_ctrl1_at_threshold_ecart(self):
+        """0.50€ rounds to 1 → écart."""
+        urssaf = self._make_urssaf("5000.50", "5000.00", "5000.00")
+        assert urssaf.status == "ecart"
+
+    def test_urssaf_ctrl1_above_threshold_ecart(self):
+        urssaf = self._make_urssaf("5000.51", "5000.00", "5000.00")
+        assert urssaf.status == "ecart"
+
+    def test_urssaf_ctrl2_below_threshold_ok(self):
+        urssaf = self._make_urssaf("5000.00", "5000.00", "4999.65")
+        assert urssaf.status == "ok"
+
+    def test_urssaf_ctrl2_at_threshold_ecart(self):
+        urssaf = self._make_urssaf("5000.00", "5000.00", "4999.50")
+        assert urssaf.status == "ecart"
+
+    def test_urssaf_ctrl1_negative_delta_ok(self):
+        urssaf = self._make_urssaf("4999.70", "5000.00", "5000.00")
+        assert urssaf.status == "ok"
+
+    def test_urssaf_ctrl2_recomputable_ctps_old_dynamic_tolerance_rejected(self):
+        """51 base/rate-driven CTPs: old dynamic tolerance (0.01×51 = 0.51€)
+        would have accepted the 0.51€ gap; new arrondi à l'entier rejects it.
+
+        Each CTP: base=100, rate=10 → recomputed=10.00, declared=10.00.
+        component = 51 × 10.00 = 510.00, bordereau = 510.51.
+        ctrl1 green (aggregate == bordereau), ctrl2 delta = 0.51€ → écart.
+        """
+        records = [
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "510.51", 2),   # aggregate = bordereau
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "510.51", 4),
+        ]
+        line = 5
+        for _ in range(51):
+            records.extend([
+                _r("S21.G00.23.001", "100", line),
+                _r("S21.G00.23.003", "10.00", line + 1),   # rate
+                _r("S21.G00.23.004", "100.00", line + 2),  # base
+                _r("S21.G00.23.005", "10.00", line + 3),   # declared = recomputed
+            ])
+            line += 4
+        est = _est(*records)
+        cc = compute_contribution_comparisons(est)
+        urssaf = [i for i in cc.items if i.family == "urssaf"][0]
+        # ctrl1: 510.51 vs 510.51 → ok
+        # ctrl2: 510.51 vs 510.00 → delta 0.51 rounds to 1 → écart
+        assert urssaf.status == "ecart"
+        assert urssaf.bordereau_vs_component_delta == Decimal("0.51")
+
+    def test_ctp_detail_keeps_centime_precision(self):
+        """CTP detail-level checks keep 0.01€ precision (not rounded to unit)."""
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "100.02", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "100.02", 4),
+            _r("S21.G00.23.001", "332", 5),
+            _r("S21.G00.23.002", "921", 6),
+            _r("S21.G00.23.003", "0.10", 7),
+            _r("S21.G00.23.004", "100000.00", 8),
+            _r("S21.G00.23.005", "100.02", 9),  # declared; recomputed = 100.00
+        )
+        cc = compute_contribution_comparisons(est, reference_date=dt.date(2025, 1, 1))
+        detail = [i for i in cc.items if i.family == "urssaf"][0].details[0]
+        assert detail.amount_mismatch is True
+        assert detail.status == "ecart"
+
+
 class TestURSSAFReferenceRates:
     def test_reference_rate_uses_declaration_date_and_assiette_mapping(self):
         est = _est(
