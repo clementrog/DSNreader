@@ -108,7 +108,7 @@
   };
 
   // ── State ────────────────────────────────────────────────
-  var PAGES = ["controle", "analyse", "tracking"];
+  var PAGES = ["controle"]; // "analyse", "tracking" hidden for now
 
   var state = {
     phase: "empty",
