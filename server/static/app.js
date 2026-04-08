@@ -120,6 +120,11 @@
     activePage: "controle",
     contribFilterEcartsOnly: true,
     expandedContribItems: {},
+    hasUploadAttempted: false,
+    lastUploadFilename: null,
+    feedbackOpen: false,
+    feedbackSubmitting: false,
+    feedbackSuccess: false,
   };
 
   // ── DOM refs (cached once) ───────────────────────────────
@@ -132,6 +137,21 @@
   var $dropzoneError = document.getElementById("dropzone-error");
   var $spinner = document.getElementById("spinner");
   var $spinnerLabel = document.getElementById("spinner-label");
+  var $feedbackButtons = document.querySelectorAll('[data-action="feedback"]');
+  var $feedbackModal = document.getElementById("feedback-modal");
+  var $feedbackForm = document.getElementById("feedback-form");
+  var $feedbackFormView = document.getElementById("feedback-form-view");
+  var $feedbackSuccessView = document.getElementById("feedback-success-view");
+  var $feedbackCategory = document.getElementById("feedback-category");
+  var $feedbackEmail = document.getElementById("feedback-email");
+  var $feedbackPhone = document.getElementById("feedback-phone");
+  var $feedbackMessage = document.getElementById("feedback-message");
+  var $feedbackConsent = document.getElementById("feedback-consent");
+  var $feedbackFormError = document.getElementById("feedback-form-error");
+  var $feedbackClose = document.getElementById("feedback-close");
+  var $feedbackCancel = document.getElementById("feedback-cancel");
+  var $feedbackSubmit = document.getElementById("feedback-submit");
+  var $feedbackDone = document.getElementById("feedback-done");
 
   var $errorDetail = document.getElementById("error-detail");
   var $errorWarnings = document.getElementById("error-warnings");
@@ -202,10 +222,12 @@
 
   // ── Formatting helpers ───────────────────────────────────
 
+  var NOT_AVAILABLE = "N.C.";
+
   function formatAmount(v) {
-    if (v == null) return "\u2014";
+    if (v == null) return NOT_AVAILABLE;
     var n = parseFloat(v);
-    if (isNaN(n)) return "\u2014";
+    if (isNaN(n)) return NOT_AVAILABLE;
     return n.toLocaleString("fr-FR", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -213,9 +235,9 @@
   }
 
   function formatRate(v) {
-    if (v == null) return "\u2014";
+    if (v == null) return NOT_AVAILABLE;
     var n = parseFloat(v);
-    if (isNaN(n)) return "\u2014";
+    if (isNaN(n)) return NOT_AVAILABLE;
     return n.toLocaleString("fr-FR", {
       minimumFractionDigits: 0,
       maximumFractionDigits: 4,
@@ -223,14 +245,14 @@
   }
 
   function formatSiret(v) {
-    if (!v) return "\u2014";
+    if (!v) return NOT_AVAILABLE;
     var s = v.replace(/\s/g, "");
     if (s.length !== 14) return v;
     return s.slice(0, 3) + " " + s.slice(3, 6) + " " + s.slice(6, 9) + " " + s.slice(9);
   }
 
   function formatMonth(v) {
-    if (!v) return "\u2014";
+    if (!v) return NOT_AVAILABLE;
     var parts = v.split("-");
     if (parts.length !== 2) return v;
     var monthIdx = parseInt(parts[1], 10) - 1;
@@ -245,7 +267,7 @@
   }
 
   function formatStatusLabel(status) {
-    if (!status) return "\u2014";
+    if (!status) return NOT_AVAILABLE;
     if (status === "ok") return "OK";
     if (status === "ecart") return "\u00c9cart";
     if (status === "declared_only") return "D\u00e9clar\u00e9 seul";
@@ -272,7 +294,7 @@
       return '<span class="status-subtle status-subtle--ok" title="OK">&#10003;</span>';
     }
     if (status === "non_calculable") {
-      return '<span class="status-subtle status-subtle--muted" title="Non calculable">&mdash;</span>';
+      return '<span class="status-subtle status-subtle--muted" title="Non calculable">NC</span>';
     }
     return '<span class="' + getStatusBadgeClass(status) + '">'
       + escapeHtml(formatDetailStatusLabel(detail))
@@ -280,7 +302,7 @@
   }
 
   function formatFamilyLabel(family) {
-    return CONTRIBUTION_FAMILY_LABELS[family] || family || "\u2014";
+    return CONTRIBUTION_FAMILY_LABELS[family] || family || NOT_AVAILABLE;
   }
 
   function getStatusBadgeClass(status) {
@@ -315,6 +337,164 @@
       });
     });
     return count;
+  }
+
+  function validateEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || "");
+  }
+
+  function getThemeName() {
+    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  }
+
+  function getActiveQualityWarningCount() {
+    if (!state.data || state.phase !== "results") return 0;
+    if (state.scope === "global") {
+      var globalWarnings = state.data.global_quality && state.data.global_quality.warnings;
+      return Array.isArray(globalWarnings) ? globalWarnings.length : 0;
+    }
+    var activeEst = state.data.establishments[state.activeEstIdx];
+    var estWarnings = activeEst && activeEst.quality && activeEst.quality.warnings;
+    return Array.isArray(estWarnings) ? estWarnings.length : 0;
+  }
+
+  function getFeedbackContext() {
+    var comparisonPayload = state.phase === "results" ? (getActiveContributionPayload() || {}) : {};
+    var visiblePhase = state.phase === "results" ? "results" : "error";
+    var visibleError = state.phase === "error" && state.error ? state.error.detail : null;
+    var errorWarnings = state.phase === "error" && state.error && Array.isArray(state.error.warnings)
+      ? state.error.warnings.length
+      : 0;
+
+    return {
+      timestamp: new Date().toISOString(),
+      phase: visiblePhase,
+      filename: state.lastUploadFilename || (state.data && state.data.source_file) || null,
+      active_page: state.activePage || null,
+      scope: state.scope,
+      active_contribution_family: state.activeContributionFamily || null,
+      browser: navigator.userAgent || null,
+      language: navigator.language || null,
+      theme: getThemeName(),
+      error_detail: visibleError,
+      visible_warning_count: state.phase === "results" ? getActiveQualityWarningCount() : errorWarnings,
+      comparison_ok_count: comparisonPayload.ok_count != null ? comparisonPayload.ok_count : null,
+      comparison_mismatch_count: comparisonPayload.mismatch_count != null ? comparisonPayload.mismatch_count : null,
+      comparison_warning_count: comparisonPayload.warning_count != null ? comparisonPayload.warning_count : null,
+    };
+  }
+
+  function setFeedbackError(message) {
+    $feedbackFormError.hidden = !message;
+    $feedbackFormError.textContent = message || "";
+  }
+
+  function resetFeedbackForm() {
+    $feedbackCategory.value = "";
+    $feedbackEmail.value = "";
+    $feedbackPhone.value = "";
+    $feedbackMessage.value = "";
+    $feedbackConsent.checked = false;
+    setFeedbackError("");
+  }
+
+  function openFeedbackModal() {
+    resetFeedbackForm();
+    setState({ feedbackOpen: true, feedbackSubmitting: false, feedbackSuccess: false });
+  }
+
+  function closeFeedbackModal() {
+    resetFeedbackForm();
+    setState({ feedbackOpen: false, feedbackSubmitting: false, feedbackSuccess: false });
+  }
+
+  function renderFeedback() {
+    var canShowFeedback = state.hasUploadAttempted && (state.phase === "results" || state.phase === "error");
+    $feedbackButtons.forEach(function (btn) {
+      btn.hidden = !canShowFeedback;
+    });
+
+    $feedbackFormView.hidden = state.feedbackSuccess;
+    $feedbackSuccessView.hidden = !state.feedbackSuccess;
+
+    var controlsDisabled = state.feedbackSubmitting;
+    $feedbackCategory.disabled = controlsDisabled;
+    $feedbackEmail.disabled = controlsDisabled;
+    $feedbackPhone.disabled = controlsDisabled;
+    $feedbackMessage.disabled = controlsDisabled;
+    $feedbackConsent.disabled = controlsDisabled;
+    $feedbackCancel.disabled = controlsDisabled;
+    $feedbackClose.disabled = controlsDisabled;
+    $feedbackSubmit.disabled = controlsDisabled;
+
+    if (state.feedbackSubmitting) {
+      $feedbackSubmit.textContent = "Envoi...";
+    } else {
+      $feedbackSubmit.textContent = "Envoyer";
+    }
+
+    if (state.feedbackOpen) {
+      if (!$feedbackModal.open) {
+        try {
+          $feedbackModal.showModal();
+        } catch (err) {
+          console.warn("Impossible d'ouvrir la fenetre de retour", err);
+        }
+      }
+    } else if ($feedbackModal.open) {
+      $feedbackModal.close();
+    }
+  }
+
+  async function submitFeedback(event) {
+    event.preventDefault();
+
+    var category = $feedbackCategory.value.trim();
+    var email = $feedbackEmail.value.trim();
+    var phone = $feedbackPhone.value.trim();
+    var message = $feedbackMessage.value.trim();
+    var consent = $feedbackConsent.checked;
+
+    if (!category || !message || !phone || !email) {
+      setFeedbackError("Merci de remplir tous les champs demandés.");
+      return;
+    }
+    if (!validateEmail(email)) {
+      setFeedbackError("Merci de renseigner un email valide.");
+      return;
+    }
+    if (!consent) {
+      setFeedbackError("Le consentement est requis pour envoyer votre retour.");
+      return;
+    }
+
+    setFeedbackError("");
+    setState({ feedbackSubmitting: true });
+
+    try {
+      var response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: category,
+          message: message,
+          email: email,
+          phone: phone,
+          consent: consent,
+          context: getFeedbackContext(),
+        }),
+      });
+      var payload = await response.json();
+      if (!response.ok) {
+        setFeedbackError(payload.detail || "L'envoi a échoué. Merci de réessayer.");
+        setState({ feedbackSubmitting: false });
+        return;
+      }
+      setState({ feedbackSubmitting: false, feedbackSuccess: true });
+    } catch (err) {
+      setFeedbackError("L'envoi a échoué. Merci de vérifier votre connexion puis de réessayer.");
+      setState({ feedbackSubmitting: false });
+    }
   }
 
   // ── State management ─────────────────────────────────────
@@ -353,6 +533,8 @@
     if (state.phase === "results" && state.data) {
       renderResults();
     }
+
+    renderFeedback();
   }
 
   // ── Error rendering ──────────────────────────────────────
@@ -436,7 +618,7 @@
 
   function renderHeader(d) {
     var company = d.company || {};
-    $headerCompany.textContent = company.name || company.siren || "\u2014";
+    $headerCompany.textContent = company.name || company.siren || "Entreprise";
     $headerSiret.textContent = formatSiret(company.siret);
     $headerPeriod.textContent = formatMonth(d.declaration ? d.declaration.month : null);
   }
@@ -673,7 +855,7 @@
       var motif = ABSENCE_MOTIF_LABELS[d.motif_code] || d.motif_label || d.motif_code;
       return '<span class="name-tag">'
         + escapeHtml(d.employee_name)
-        + ' <span class="name-tag__motif">\u2014 ' + escapeHtml(motif) + '</span>'
+        + ' <span class="name-tag__motif">\u00b7 ' + escapeHtml(motif) + '</span>'
         + '</span>';
     }).join("");
   }
@@ -870,7 +1052,7 @@
 
     var allOk = items.every(function (item) { return item.status === "ok" && collectComparisonWarnings(item).length === 0; });
     var hint = allOk
-      ? '<div class="contrib-all-ok-hint">Tous les organismes sont conformes \u2014 cliquez pour voir le d\u00e9tail</div>'
+      ? '<div class="contrib-all-ok-hint">Tous les organismes sont conformes. Cliquez pour voir le d\u00e9tail.</div>'
       : '';
 
     return '<div class="contrib-stack">' + items.map(renderContributionItem).join("") + '</div>' + hint;
@@ -1008,7 +1190,7 @@
     ];
 
     return '<div class="kv-grid">' + rows
-      .filter(function (row) { return row.value !== "\u2014"; })
+      .filter(function (row) { return row.value !== NOT_AVAILABLE; })
       .map(function (row) {
         return '<div class="kv-row">'
           + '<span class="kv-row__label">' + escapeHtml(row.label) + '</span>'
@@ -1051,7 +1233,7 @@
       + '</div>';
 
     var emptyMsg = filterActive && totalRows > 0
-      ? 'Aucun \u00e9cart d\u00e9tect\u00e9 sur ' + totalRows + ' lignes \u2014 d\u00e9cochez le filtre pour tout afficher'
+      ? 'Aucun \u00e9cart d\u00e9tect\u00e9 sur ' + totalRows + ' lignes. D\u00e9cochez le filtre pour tout afficher.'
       : 'Aucun d\u00e9tail disponible';
 
     var body = visibleDetails.length === 0
@@ -1074,7 +1256,7 @@
               + escapeHtml(formatRate(detail.expected_rate))
               + '</span>';
             tauxTitle = ' title="Taux DSN\u00a0: ' + escapeHtml(formatRate(detail.rate))
-              + ' \u2014 Taux r\u00e9f\u00e9rence\u00a0: ' + escapeHtml(formatRate(detail.expected_rate)) + '"';
+              + ' | Taux r\u00e9f\u00e9rence\u00a0: ' + escapeHtml(formatRate(detail.expected_rate)) + '"';
           } else {
             tauxHtml = escapeHtml(formatRate(detail.rate));
           }
@@ -1088,13 +1270,13 @@
               + escapeHtml(formatAmount(detail.computed_amount))
               + '</span>';
             montantTitle = ' title="Montant DSN\u00a0: ' + escapeHtml(formatAmount(detail.declared_amount))
-              + ' \u2014 Montant recalcul\u00e9\u00a0: ' + escapeHtml(formatAmount(detail.computed_amount)) + '"';
+              + ' | Montant recalcul\u00e9\u00a0: ' + escapeHtml(formatAmount(detail.computed_amount)) + '"';
           } else {
             montantHtml = escapeHtml(formatAmount(detail.declared_amount));
           }
 
           // Delta column
-          var deltaHtml = '\u2014';
+          var deltaHtml = 'NC';
           if (detail.delta != null) {
             var dv = parseFloat(detail.delta);
             if (!isNaN(dv) && dv !== 0) {
@@ -1103,8 +1285,8 @@
           }
 
           var rowHtml = '<tr class="' + rowCls + '">'
-            + '<td class="mono">' + escapeHtml(detail.mapped_code || detail.ctp_code || "\u2014") + '</td>'
-            + '<td>' + escapeHtml(detail.label || "\u2014") + '</td>'
+            + '<td class="mono">' + escapeHtml(detail.mapped_code || detail.ctp_code || NOT_AVAILABLE) + '</td>'
+            + '<td>' + escapeHtml(detail.label || NOT_AVAILABLE) + '</td>'
             + '<td class="mono"' + assietteTitle + '>' + assietteHtml + '</td>'
             + '<td class="mono"' + tauxTitle + '>' + tauxHtml + '</td>'
             + '<td class="mono"' + montantTitle + '>' + montantHtml + '</td>'
@@ -1162,8 +1344,8 @@
       ? '<tr><td colspan="3" class="data-table__empty">Aucun d\u00e9tail disponible</td></tr>'
       : details.map(function (detail) {
           return '<tr>'
-            + '<td>' + escapeHtml(detail.key || "\u2014") + '</td>'
-            + '<td>' + escapeHtml(detail.label || "\u2014") + '</td>'
+            + '<td>' + escapeHtml(detail.key || NOT_AVAILABLE) + '</td>'
+            + '<td>' + escapeHtml(detail.label || NOT_AVAILABLE) + '</td>'
             + '<td class="mono">' + escapeHtml(formatAmount(detail.declared_amount)) + '</td>'
             + '</tr>';
         }).join("");
@@ -1214,7 +1396,11 @@
   }
 
   async function upload(file) {
-    setState({ phase: "uploading" });
+    setState({
+      phase: "uploading",
+      hasUploadAttempted: true,
+      lastUploadFilename: file.name || null,
+    });
 
     var form = new FormData();
     form.append("file", file);
@@ -1232,7 +1418,16 @@
       }
 
       var initialFamily = getInitialContributionFamily(json);
-      setState({ phase: "results", data: json, scope: "global", activeEstIdx: 0, activeContributionFamily: initialFamily });
+      setState({
+        phase: "results",
+        data: json,
+        scope: "global",
+        activeEstIdx: 0,
+        activeContributionFamily: initialFamily,
+        feedbackOpen: false,
+        feedbackSubmitting: false,
+        feedbackSuccess: false,
+      });
     } catch (err) {
       setState({
         phase: "error",
@@ -1256,6 +1451,11 @@
       activePage: "controle",
       contribFilterEcartsOnly: true,
       expandedContribItems: {},
+      hasUploadAttempted: false,
+      lastUploadFilename: null,
+      feedbackOpen: false,
+      feedbackSubmitting: false,
+      feedbackSuccess: false,
     });
   }
 
@@ -1378,6 +1578,39 @@
   // Reset buttons
   document.querySelectorAll('[data-action="reset"]').forEach(function (btn) {
     btn.addEventListener("click", reset);
+  });
+
+  $feedbackButtons.forEach(function (btn) {
+    btn.addEventListener("click", openFeedbackModal);
+  });
+
+  $feedbackForm.addEventListener("submit", submitFeedback);
+
+  $feedbackClose.addEventListener("click", closeFeedbackModal);
+  $feedbackCancel.addEventListener("click", closeFeedbackModal);
+  $feedbackDone.addEventListener("click", closeFeedbackModal);
+
+  $feedbackModal.addEventListener("click", function (e) {
+    if (e.target === $feedbackModal && !state.feedbackSubmitting) {
+      closeFeedbackModal();
+    }
+  });
+
+  $feedbackModal.addEventListener("cancel", function (e) {
+    if (state.feedbackSubmitting) {
+      e.preventDefault();
+      return;
+    }
+    closeFeedbackModal();
+  });
+
+  $feedbackModal.addEventListener("close", function () {
+    if (state.feedbackOpen) {
+      state.feedbackOpen = false;
+      state.feedbackSubmitting = false;
+      state.feedbackSuccess = false;
+      resetFeedbackForm();
+    }
   });
 
   // Also allow clicking the whole dropzone to trigger file picker

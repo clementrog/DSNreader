@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DSN Reader</title>
+  <title>Contr&#244;le DSN</title>
   <script>
     // Apply saved theme before first paint to avoid flash
     (function() {
@@ -31,22 +31,38 @@
 
   <!-- ── Drop zone screen ──────────────────────────────────── -->
   <main id="dropzone-screen" class="screen">
-    <div id="dropzone" class="dropzone">
-      <div class="dropzone__icon">
-        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
+    <section class="empty-shell">
+      <div class="empty-shell__content">
+        <div class="empty-intro">
+          <p class="empty-intro__eyebrow"><span class="beta-pill">Linc beta</span></p>
+          <h1>Contr&#244;le DSN</h1>
+          <p class="empty-intro__lead">
+            D&#233;posez votre fichier pour rep&#233;rer rapidement les &#233;carts utiles.
+          </p>
+          <div class="empty-intro__points">
+            <p>Formats : `.dsn`, `.txt`, `.edi`</p>
+            <p>Retour beta int&#233;gr&#233;</p>
+          </div>
+        </div>
+
+        <div id="dropzone" class="dropzone">
+          <div class="dropzone__icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <p class="dropzone__label" id="dropzone-label">D&#233;posez un fichier .dsn, .txt ou .edi ici</p>
+          <p class="dropzone__sublabel" id="dropzone-sublabel">ou cliquez pour parcourir</p>
+          <input type="file" id="file-input" accept=".dsn,.txt,.edi" hidden>
+          <button id="browse-btn" class="btn btn--primary" type="button">Choisir un fichier</button>
+          <div id="spinner" class="spinner" hidden></div>
+          <p id="spinner-label" class="spinner-label" hidden>Traitement en cours...</p>
+          <p id="dropzone-error" class="dropzone__error"></p>
+        </div>
       </div>
-      <p class="dropzone__label" id="dropzone-label">D&#233;posez un fichier .dsn, .txt ou .edi ici</p>
-      <p class="dropzone__sublabel" id="dropzone-sublabel">ou cliquez pour parcourir</p>
-      <input type="file" id="file-input" accept=".dsn,.txt,.edi" hidden>
-      <button id="browse-btn" class="btn btn--secondary" type="button">Choisir un fichier</button>
-      <div id="spinner" class="spinner" hidden></div>
-      <p id="spinner-label" class="spinner-label" hidden>Traitement en cours...</p>
-      <p id="dropzone-error" class="dropzone__error"></p>
-    </div>
+    </section>
   </main>
 
   <!-- ── Error screen ──────────────────────────────────────── -->
@@ -55,7 +71,10 @@
       <p class="error-card__title" id="error-title">Erreur</p>
       <p class="error-card__detail" id="error-detail"></p>
       <ul class="error-card__warnings" id="error-warnings"></ul>
-      <button class="btn btn--primary" type="button" data-action="reset">Charger un autre fichier</button>
+      <div class="error-card__actions">
+        <button class="btn btn--secondary" type="button" id="feedback-btn-error" data-action="feedback" hidden>Signaler un retour</button>
+        <button class="btn btn--primary" type="button" data-action="reset">Charger un autre fichier</button>
+      </div>
     </div>
   </main>
 
@@ -71,7 +90,10 @@
           <span id="header-period"></span>
         </div>
       </div>
-      <button class="btn btn--secondary" type="button" data-action="reset">Nouveau fichier</button>
+      <div class="results-header__actions">
+        <button class="btn btn--secondary" type="button" id="feedback-btn-results" data-action="feedback" hidden>Partager un retour</button>
+        <button class="btn btn--secondary" type="button" data-action="reset">Nouveau fichier</button>
+      </div>
     </header>
 
     <!-- Page navigation -->
@@ -110,19 +132,19 @@
     <section class="card-row">
       <div class="summary-card">
         <span class="summary-card__label">Salari&#233;s</span>
-        <span class="summary-card__value" id="card-employees">--</span>
+        <span class="summary-card__value" id="card-employees">0</span>
       </div>
       <div class="summary-card">
         <span class="summary-card__label">Embauches</span>
-        <span class="summary-card__value" id="card-hires">--</span>
+        <span class="summary-card__value" id="card-hires">0</span>
       </div>
       <div class="summary-card">
         <span class="summary-card__label">Sorties</span>
-        <span class="summary-card__value" id="card-exits">--</span>
+        <span class="summary-card__value" id="card-exits">0</span>
       </div>
       <div class="summary-card">
         <span class="summary-card__label">Stagiaires</span>
-        <span class="summary-card__value" id="card-stagiaires">--</span>
+        <span class="summary-card__value" id="card-stagiaires">0</span>
       </div>
     </section>
 
@@ -154,15 +176,15 @@
       <div class="kv-grid">
         <div class="kv-row">
           <span class="kv-row__label">Tickets restaurant (employeur)</span>
-          <span class="kv-row__value" id="amt-tickets">&mdash;</span>
+          <span class="kv-row__value" id="amt-tickets">N.C.</span>
         </div>
         <div class="kv-row">
           <span class="kv-row__label">Transport (public)</span>
-          <span class="kv-row__value" id="amt-transport-public">&mdash;</span>
+          <span class="kv-row__value" id="amt-transport-public">N.C.</span>
         </div>
         <div class="kv-row">
           <span class="kv-row__label">Transport (personnel)</span>
-          <span class="kv-row__value" id="amt-transport-personal">&mdash;</span>
+          <span class="kv-row__value" id="amt-transport-personal">N.C.</span>
         </div>
       </div>
     </section>
@@ -173,19 +195,19 @@
       <div class="kv-grid">
         <div class="kv-row">
           <span class="kv-row__label">Net fiscal</span>
-          <span class="kv-row__value" id="ext-net-fiscal">&mdash;</span>
+          <span class="kv-row__value" id="ext-net-fiscal">N.C.</span>
         </div>
         <div class="kv-row">
           <span class="kv-row__label">Net vers&#233;</span>
-          <span class="kv-row__value" id="ext-net-paid">&mdash;</span>
+          <span class="kv-row__value" id="ext-net-paid">N.C.</span>
         </div>
         <div class="kv-row">
           <span class="kv-row__label">PAS total</span>
-          <span class="kv-row__value" id="ext-pas">&mdash;</span>
+          <span class="kv-row__value" id="ext-pas">N.C.</span>
         </div>
         <div class="kv-row">
           <span class="kv-row__label">Brut (bases salaire)</span>
-          <span class="kv-row__value" id="ext-gross">&mdash;</span>
+          <span class="kv-row__value" id="ext-gross">N.C.</span>
         </div>
       </div>
     </section>
@@ -196,30 +218,30 @@
       <div class="card-row">
         <div class="summary-card">
           <span class="summary-card__label">Effectif</span>
-          <span class="summary-card__value" id="sa-effectif">--</span>
+          <span class="summary-card__value" id="sa-effectif">0</span>
         </div>
         <div class="summary-card">
           <span class="summary-card__label">Entr&#233;es</span>
-          <span class="summary-card__value" id="sa-entrees">--</span>
+          <span class="summary-card__value" id="sa-entrees">0</span>
         </div>
         <div class="summary-card">
           <span class="summary-card__label">Sorties</span>
-          <span class="summary-card__value" id="sa-sorties">--</span>
+          <span class="summary-card__value" id="sa-sorties">0</span>
         </div>
         <div class="summary-card">
           <span class="summary-card__label">Stagiaires</span>
-          <span class="summary-card__value" id="sa-stagiaires">--</span>
+          <span class="summary-card__value" id="sa-stagiaires">0</span>
         </div>
       </div>
 
       <div class="card-row card-row--half">
         <div class="summary-card">
           <span class="summary-card__label">Cadres</span>
-          <span class="summary-card__value" id="sa-cadre">--</span>
+          <span class="summary-card__value" id="sa-cadre">0</span>
         </div>
         <div class="summary-card">
           <span class="summary-card__label">Non-cadres</span>
-          <span class="summary-card__value" id="sa-non-cadre">--</span>
+          <span class="summary-card__value" id="sa-non-cadre">0</span>
         </div>
       </div>
 
@@ -244,11 +266,11 @@
         <div class="card-row card-row--half" style="margin-bottom: var(--sp-4);">
           <div class="summary-card summary-card--compact">
             <span class="summary-card__label">Salari&#233;s concern&#233;s</span>
-            <span class="summary-card__value" id="sa-abs-employees">--</span>
+            <span class="summary-card__value" id="sa-abs-employees">0</span>
           </div>
           <div class="summary-card summary-card--compact">
             <span class="summary-card__label">&#201;v&#233;nements</span>
-            <span class="summary-card__value" id="sa-abs-events">--</span>
+            <span class="summary-card__value" id="sa-abs-events">0</span>
           </div>
         </div>
         <table class="data-table">
@@ -262,15 +284,15 @@
         <div class="kv-grid">
           <div class="kv-row">
             <span class="kv-row__label">Net vers&#233;</span>
-            <span class="kv-row__value" id="sa-net-verse">&mdash;</span>
+            <span class="kv-row__value" id="sa-net-verse">N.C.</span>
           </div>
           <div class="kv-row">
             <span class="kv-row__label">Net fiscal</span>
-            <span class="kv-row__value" id="sa-net-fiscal">&mdash;</span>
+            <span class="kv-row__value" id="sa-net-fiscal">N.C.</span>
           </div>
           <div class="kv-row">
             <span class="kv-row__label">PAS total</span>
-            <span class="kv-row__value" id="sa-pas">&mdash;</span>
+            <span class="kv-row__value" id="sa-pas">N.C.</span>
           </div>
         </div>
       </div>
@@ -292,21 +314,21 @@
       <div class="card-row">
         <div class="summary-card">
           <span class="summary-card__label">Bulletins</span>
-          <span class="summary-card__value" id="pt-bulletins">--</span>
+          <span class="summary-card__value" id="pt-bulletins">0</span>
         </div>
         <div class="summary-card">
           <span class="summary-card__label">Entr&#233;es facturables</span>
-          <span class="summary-card__value" id="pt-entries">--</span>
+          <span class="summary-card__value" id="pt-entries">0</span>
           <div class="name-list" id="pt-entries-names"></div>
         </div>
         <div class="summary-card">
           <span class="summary-card__label">Sorties facturables</span>
-          <span class="summary-card__value" id="pt-exits">--</span>
+          <span class="summary-card__value" id="pt-exits">0</span>
           <div class="name-list" id="pt-exits-names"></div>
         </div>
         <div class="summary-card">
           <span class="summary-card__label">Absences facturables</span>
-          <span class="summary-card__value" id="pt-absences">--</span>
+          <span class="summary-card__value" id="pt-absences">0</span>
           <div class="name-list" id="pt-absences-names"></div>
         </div>
       </div>
@@ -314,11 +336,11 @@
       <div class="card-row card-row--half">
         <div class="summary-card" id="pt-exceptional-card" hidden>
           <span class="summary-card__label">&#201;v&#233;nements exceptionnels</span>
-          <span class="summary-card__value" id="pt-exceptional">--</span>
+          <span class="summary-card__value" id="pt-exceptional">0</span>
         </div>
         <div class="summary-card">
           <span class="summary-card__label">Anomalies DSN</span>
-          <span class="summary-card__value" id="pt-anomalies">--</span>
+          <span class="summary-card__value" id="pt-anomalies">0</span>
         </div>
       </div>
 
@@ -354,6 +376,91 @@
     </div><!-- /page-controle -->
 
   </main>
+
+  <footer class="site-footer">
+    <div class="site-footer__inner">
+      <div class="site-footer__brand">
+        <span class="site-footer__badge">Linc</span>
+        <div>
+          <p class="site-footer__title">DSN Reader beta</p>
+          <p class="site-footer__subtitle">Un outil propos&#233; par Linc</p>
+        </div>
+      </div>
+      <a class="site-footer__link" href="https://www.linc.fr" target="_blank" rel="noreferrer">linc.fr</a>
+    </div>
+  </footer>
+
+  <dialog id="feedback-modal" class="feedback-modal" aria-labelledby="feedback-title">
+    <form id="feedback-form" class="feedback-modal__panel" method="dialog" novalidate>
+      <div class="feedback-modal__header">
+        <div>
+          <p class="feedback-modal__eyebrow">Retour beta</p>
+          <h2 id="feedback-title">Partager un retour</h2>
+        </div>
+        <button id="feedback-close" class="feedback-modal__close" type="button" aria-label="Fermer">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6 6 18"/>
+            <path d="m6 6 12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div id="feedback-form-view">
+        <p class="feedback-modal__intro">
+          Votre message et un contexte technique limit&#233; sont envoy&#233;s &#224; Cl&#233;ment pour qu&rsquo;il puisse comprendre, corriger et revenir vers vous si besoin.
+        </p>
+
+        <div class="feedback-form__grid">
+          <label class="field">
+            <span class="field__label">Type de retour</span>
+            <select id="feedback-category" class="field__control" required>
+              <option value="">Choisir</option>
+              <option value="improvement">Am&#233;lioration</option>
+              <option value="issue">Probl&#232;me / &#233;cart</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Email</span>
+            <input id="feedback-email" class="field__control" type="email" placeholder="vous@exemple.com" required>
+          </label>
+
+          <label class="field">
+            <span class="field__label">T&#233;l&#233;phone</span>
+            <input id="feedback-phone" class="field__control" type="tel" placeholder="06 12 34 56 78" required>
+          </label>
+
+          <label class="field field--full">
+            <span class="field__label">Message</span>
+            <textarea id="feedback-message" class="field__control field__control--textarea" rows="5" placeholder="Dites-nous ce que vous avez vu, ce qui manque ou ce qui ne fonctionne pas." required></textarea>
+          </label>
+
+          <label class="field field--checkbox field--full">
+            <input id="feedback-consent" type="checkbox" required>
+            <span>J&rsquo;accepte que mes coordonn&#233;es et ce retour soient trait&#233;s pour analyser ma demande et me recontacter.</span>
+          </label>
+        </div>
+
+        <p id="feedback-form-error" class="feedback-form__error" hidden></p>
+
+        <div class="feedback-modal__actions">
+          <button id="feedback-cancel" class="btn btn--secondary" type="button">Annuler</button>
+          <button id="feedback-submit" class="btn btn--primary" type="submit">Envoyer</button>
+        </div>
+      </div>
+
+      <div id="feedback-success-view" class="feedback-success" hidden>
+        <div class="feedback-success__icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m5 12 5 5L20 7"/>
+          </svg>
+        </div>
+        <h3>Retour envoy&#233;</h3>
+        <p>Merci. Cl&#233;ment a re&#231;u votre message avec le contexte utile pour investiguer.</p>
+        <button id="feedback-done" class="btn btn--primary" type="button">Fermer</button>
+      </div>
+    </form>
+  </dialog>
 
 </body>
 </html>

@@ -10,6 +10,7 @@ from starlette.testclient import TestClient
 from dsn_extractor.extractors import extract
 from dsn_extractor.models import DSNOutput
 from dsn_extractor.parser import parse
+import server.app as server_app
 from server.app import app
 
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
@@ -182,6 +183,15 @@ class TestFrontendWiring:
         assert "/static/style.css" in html
         assert "/static/app.js" in html
 
+    def test_index_contains_beta_heading_and_footer(self):
+        r = client.get("/")
+        assert r.status_code == 200
+        html = r.text
+        assert "Contr&#244;le DSN" in html
+        assert "Un outil propos&#233; par Linc" in html
+        assert 'id="feedback-btn-results"' in html
+        assert 'id="feedback-btn-error"' in html
+
     def test_static_css_served(self):
         r = client.get("/static/style.css")
         assert r.status_code == 200
@@ -294,3 +304,162 @@ class TestResponseSchema:
         assert r.status_code == 200
         # This will raise ValidationError if schema doesn't match
         DSNOutput.model_validate(r.json())
+
+
+class TestFeedbackAPI:
+    def test_feedback_rejects_non_json_body(self):
+        r = client.post(
+            "/api/feedback",
+            content="not json",
+            headers={"Content-Type": "text/plain"},
+        )
+        assert r.status_code == 400
+
+    def test_feedback_rejects_invalid_category(self):
+        r = client.post(
+            "/api/feedback",
+            json={
+                "category": "bogus",
+                "message": "Ajouter un raccourci",
+                "email": "person@example.com",
+                "phone": "0601020304",
+                "consent": True,
+                "context": {},
+            },
+        )
+        assert r.status_code == 400
+        assert "invalide" in r.json()["detail"].lower()
+
+    def test_feedback_rejects_missing_fields(self):
+        r = client.post(
+            "/api/feedback",
+            json={
+                "category": "issue",
+                "message": "",
+                "email": "person@example.com",
+                "phone": "",
+                "consent": True,
+                "context": {},
+            },
+        )
+        assert r.status_code == 400
+        assert "message" in r.json()["detail"].lower() or "téléphone" in r.json()["detail"].lower()
+
+    def test_feedback_rejects_missing_consent(self):
+        r = client.post(
+            "/api/feedback",
+            json={
+                "category": "issue",
+                "message": "Une erreur est visible",
+                "email": "person@example.com",
+                "phone": "0601020304",
+                "consent": False,
+                "context": {},
+            },
+        )
+        assert r.status_code == 400
+        assert "consentement" in r.json()["detail"].lower()
+
+    def test_feedback_rejects_invalid_email(self):
+        r = client.post(
+            "/api/feedback",
+            json={
+                "category": "improvement",
+                "message": "Ajouter un raccourci",
+                "email": "not-an-email",
+                "phone": "0601020304",
+                "consent": True,
+                "context": {},
+            },
+        )
+        assert r.status_code == 400
+        assert "email valide" in r.json()["detail"].lower()
+
+    def test_feedback_returns_config_error_when_resend_key_missing(self, monkeypatch):
+        monkeypatch.delenv("RESEND_API_KEY", raising=False)
+
+        r = client.post(
+            "/api/feedback",
+            json={
+                "category": "issue",
+                "message": "Le calcul plante après chargement.",
+                "email": "person@example.com",
+                "phone": "0601020304",
+                "consent": True,
+                "context": {"phase": "error"},
+            },
+        )
+
+        assert r.status_code == 500
+        assert "configuré" in r.json()["detail"].lower()
+
+    def test_feedback_sends_email_with_sanitized_context(self, monkeypatch):
+        captured: dict[str, object] = {}
+
+        def fake_send_feedback_email(**kwargs):
+            captured.update(kwargs)
+            return {"id": "email_123"}
+
+        monkeypatch.setattr(server_app, "_send_feedback_email", fake_send_feedback_email)
+
+        r = client.post(
+            "/api/feedback",
+            json={
+                "category": "issue",
+                "message": "Le calcul plante après chargement.",
+                "email": "person@example.com",
+                "phone": "0601020304",
+                "consent": True,
+                "context": {
+                    "timestamp": "2026-04-08T10:30:00Z",
+                    "phase": "results",
+                    "filename": "/tmp/private-folder/client-a.dsn",
+                    "active_page": "controle",
+                    "scope": "global",
+                    "active_contribution_family": "urssaf",
+                    "browser": "Mozilla/5.0",
+                    "language": "fr-FR",
+                    "theme": "light",
+                    "error_detail": None,
+                    "visible_warning_count": 2,
+                    "comparison_ok_count": 18,
+                    "comparison_mismatch_count": 3,
+                    "comparison_warning_count": 1,
+                    "raw_dsn": "S10.G00.00.001,'P24V01'",
+                    "full_payload": {"employees": ["Alice Martin"]},
+                },
+            },
+        )
+
+        assert r.status_code == 200
+        assert r.json()["status"] == "ok"
+        assert captured["category"] == "issue"
+        assert captured["email"] == "person@example.com"
+        assert captured["phone"] == "0601020304"
+
+        context = captured["context"]
+        assert context["filename"] == "client-a.dsn"
+        assert context["comparison_mismatch_count"] == 3
+        assert "raw_dsn" not in context
+        assert "full_payload" not in context
+
+    def test_feedback_returns_clean_error_on_send_failure(self, monkeypatch):
+        def fake_send_feedback_email(**kwargs):
+            raise RuntimeError("L'envoi du retour a échoué.")
+
+        monkeypatch.setattr(server_app, "_send_feedback_email", fake_send_feedback_email)
+
+        r = client.post(
+            "/api/feedback",
+            json={
+                "category": "issue",
+                "message": "Le calcul plante après chargement.",
+                "email": "person@example.com",
+                "phone": "0601020304",
+                "consent": True,
+                "context": {"phase": "error"},
+            },
+        )
+
+        assert r.status_code == 500
+        assert "échoué" in r.json()["detail"].lower()
