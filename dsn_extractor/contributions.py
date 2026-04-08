@@ -92,6 +92,16 @@ ASSIETTE_QUALIFIER_LABELS: dict[str, str] = {
     "921": "Taux plafonné",
 }
 
+# DSN 13.3 defines these S21.G00.23 lines as carrying only the enterprise ATMP
+# rate in .003 while leaving .005 empty. They must not be validated against the
+# generic CTP reference rate or turned into a payable amount.
+AT_RATE_ONLY_CTPS: set[tuple[str, str]] = {
+    ("100", "920"),
+    ("726", "920"),
+    ("734", "920"),
+    ("863", "920"),
+}
+
 
 def _employee_display_name(emp: EmployeeBlock) -> str:
     nom = (_find_value(emp.records, "S21.G00.30.002") or "").strip()
@@ -105,6 +115,12 @@ def _format_assiette_label(qualifier: str | None) -> str | None:
     if not qualifier:
         return None
     return ASSIETTE_QUALIFIER_LABELS.get(qualifier, qualifier)
+
+
+def _is_at_rate_only_ctp(ctp_code: str, assiette_qualifier: str | None) -> bool:
+    if not assiette_qualifier:
+        return False
+    return (ctp_code, assiette_qualifier) in AT_RATE_ONLY_CTPS
 
 
 def _format_mapped_ctp_code(
@@ -357,14 +373,23 @@ def _compute_urssaf(
             declared = _dec(declared_raw) if declared_raw and declared_raw.strip() else None
             rate = _dec(rate_raw) if rate_raw and rate_raw.strip() else None
             base = _dec(base_raw) if base_raw and base_raw.strip() else None
+            is_at_rate_only = (
+                _is_at_rate_only_ctp(ctp_code, assiette_qual or None)
+                and expected_rate is not None
+                and declared is None
+                and rate is not None
+                and rate < expected_rate
+            )
 
             recomputed: Decimal | None = None
-            effective_rate = expected_rate if expected_rate is not None else rate
+            effective_rate = None
+            if not is_at_rate_only:
+                effective_rate = expected_rate if expected_rate is not None else rate
             # Net-entreprises documents F/R CTP formats as special
             # reduction/regularization lines whose business amount lives in
             # S21.G00.23.005 rather than being safely recomputable from
             # S21.G00.23.004 × taux.
-            can_recompute_amount = reference_fmt not in {"F", "R"}
+            can_recompute_amount = not is_at_rate_only and reference_fmt not in {"F", "R"}
             if base is not None and effective_rate is not None and can_recompute_amount:
                 recomputed = (base * effective_rate / Decimal(100)).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -386,7 +411,7 @@ def _compute_urssaf(
             rate_mismatch = False
             amount_mismatch = False
 
-            if rate is not None and expected_rate is not None:
+            if rate is not None and expected_rate is not None and not is_at_rate_only:
                 rate_mismatch = not _within_tolerance(rate, expected_rate, _RATE_TOL_0001)
                 if rate_mismatch:
                     ctp_warnings.append(
@@ -439,7 +464,9 @@ def _compute_urssaf(
     component_comparison_complete = has_ctp and non_calculable_ctp_count == 0
     if has_ctp and non_calculable_ctp_count > 0:
         warnings.append(
-            f"partial_ctp_recalculation: {non_calculable_ctp_count} lignes non calculables"
+            "Sous-total CTP non affiché : "
+            f"{non_calculable_ctp_count} ligne(s) ne peuvent pas être "
+            "rapprochées de façon fiable à partir de la DSN seule."
         )
         # Keep line-level details, but do not present a partial subtotal as the
         # full detailed amount in the top-level card.

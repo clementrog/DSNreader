@@ -681,7 +681,7 @@ class TestURSSAF:
 
         assert urssaf.component_amount is None
         assert urssaf.bordereau_vs_component_delta is None
-        assert any("partial_ctp_recalculation" in w for w in urssaf.warnings)
+        assert any("Sous-total CTP non affiché" in w for w in urssaf.warnings)
         assert urssaf.status == "ok"
 
 
@@ -829,6 +829,52 @@ class TestRoundingToleranceURSSAF:
 
 
 class TestURSSAFReferenceRates:
+    @pytest.mark.parametrize(
+        ("ctp_code", "base", "expected_rate"),
+        [
+            ("100", "43171.00", Decimal("13.26")),
+            ("726", "912.00", Decimal("12.86")),
+            ("863", "660.00", Decimal("21.06")),
+        ],
+    )
+    def test_at_only_ctp_rate_does_not_trigger_mismatch_or_amount_recompute(
+        self,
+        ctp_code: str,
+        base: str,
+        expected_rate: Decimal,
+    ):
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "100.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "100.00", 4),
+            _r("S21.G00.23.001", ctp_code, 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "0.71", 7),
+            _r("S21.G00.23.004", base, 8),
+            _r("S21.G00.23.005", "", 9),
+            _r("S21.G00.23.001", "332", 10),
+            _r("S21.G00.23.002", "921", 11),
+            _r("S21.G00.23.003", "0.10", 12),
+            _r("S21.G00.23.004", "1000.00", 13),
+            _r("S21.G00.23.005", "1.00", 14),
+        )
+        cc = compute_contribution_comparisons(est, reference_date=dt.date(2026, 3, 31))
+        urssaf = [i for i in cc.items if i.family == "urssaf"][0]
+        detail = next(d for d in urssaf.details if d.ctp_code == ctp_code)
+
+        assert detail.mapped_code == f"{ctp_code}D"
+        assert detail.rate == Decimal("0.71")
+        assert detail.expected_rate == expected_rate
+        assert detail.computed_amount is None
+        assert detail.rate_mismatch is False
+        assert detail.amount_mismatch is False
+        assert detail.status == "non_calculable"
+        assert detail.warnings == []
+        assert urssaf.component_amount is None
+        assert any("Sous-total CTP non affiché" in w for w in urssaf.warnings)
+        assert urssaf.status == "ok"
+
     def test_reference_rate_uses_declaration_date_and_assiette_mapping(self):
         est = _est(
             _r("S21.G00.20.001", "78861779300013", 1),
