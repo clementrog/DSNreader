@@ -188,7 +188,7 @@ class TestFrontendWiring:
         assert r.status_code == 200
         html = r.text
         assert "Contr&#244;le DSN" in html
-        assert "Un outil propos&#233; par Linc" in html
+        assert "logo-linc.svg" in html
         assert 'id="feedback-btn-results"' in html
         assert 'id="feedback-btn-error"' in html
 

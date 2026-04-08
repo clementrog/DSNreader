@@ -3,13 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Contr&#244;le DSN</title>
+  <title>Contr&#244;le DSN &mdash; Linc</title>
+  <meta name="description" content="D&#233;posez un fichier DSN pour rep&#233;rer les &#233;carts de cotisations et contr&#244;ler votre d&#233;claration. Outil gratuit propos&#233; par Linc.">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <script>
-    // Apply saved theme before first paint to avoid flash
-    (function() {
-      var t = localStorage.getItem("dsn-theme");
-      if (t === "light") document.documentElement.setAttribute("data-theme", "light");
-    })();
+    // Light theme is the only theme — force it before first paint
+    document.documentElement.setAttribute("data-theme", "light");
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,29 +18,21 @@
 </head>
 <body data-state="empty">
 
-  <!-- ── Theme toggle ──────────────────────────────────────── -->
-  <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Changer de thème">
-    <svg class="theme-toggle__icon theme-toggle__icon--dark" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-    </svg>
-    <svg class="theme-toggle__icon theme-toggle__icon--light" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-    </svg>
-  </button>
+  <!-- Theme toggle hidden — light only -->
+  <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Changer de thème" hidden></button>
 
   <!-- ── Drop zone screen ──────────────────────────────────── -->
   <main id="dropzone-screen" class="screen">
     <section class="empty-shell">
       <div class="empty-shell__content">
         <div class="empty-intro">
-          <p class="empty-intro__eyebrow"><span class="beta-pill">Linc beta</span></p>
+          <p class="empty-intro__eyebrow"><span class="beta-pill">Beta</span></p>
           <h1>Contr&#244;le DSN</h1>
           <p class="empty-intro__lead">
             D&#233;posez votre fichier pour rep&#233;rer rapidement les &#233;carts utiles.
           </p>
           <div class="empty-intro__points">
             <p>Formats : `.dsn`, `.txt`, `.edi`</p>
-            <p>Retour beta int&#233;gr&#233;</p>
           </div>
         </div>
 
@@ -72,8 +63,8 @@
       <p class="error-card__detail" id="error-detail"></p>
       <ul class="error-card__warnings" id="error-warnings"></ul>
       <div class="error-card__actions">
-        <button class="btn btn--secondary" type="button" id="feedback-btn-error" data-action="feedback" hidden>Signaler un retour</button>
-        <button class="btn btn--primary" type="button" data-action="reset">Charger un autre fichier</button>
+        <button class="btn btn--secondary" type="button" id="feedback-btn-error" data-action="feedback" hidden><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/></svg>Signaler un retour</button>
+        <button class="btn btn--primary" type="button" data-action="reset"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>Charger un autre fichier</button>
       </div>
     </div>
   </main>
@@ -91,17 +82,14 @@
         </div>
       </div>
       <div class="results-header__actions">
-        <button class="btn btn--secondary" type="button" id="feedback-btn-results" data-action="feedback" hidden>Partager un retour</button>
-        <button class="btn btn--secondary" type="button" data-action="reset">Nouveau fichier</button>
+        <button class="btn btn--secondary" type="button" id="feedback-btn-results" data-action="feedback" hidden><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/></svg>Partager un retour</button>
+        <button class="btn btn--secondary" type="button" data-action="reset"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>Nouveau fichier</button>
       </div>
     </header>
 
-    <!-- Page navigation -->
-    <nav id="page-nav" class="page-nav">
+    <!-- Page navigation — hidden while only one page exists -->
+    <nav id="page-nav" class="page-nav" hidden>
       <button class="page-nav__btn page-nav__btn--active" type="button" data-page="controle">Contr&#244;le de DSN</button>
-      <!-- hidden for now -->
-      <!-- <button class="page-nav__btn" type="button" data-page="analyse">Analyse sociale</button> -->
-      <!-- <button class="page-nav__btn" type="button" data-page="tracking">Tracking gestionnaire</button> -->
     </nav>
 
     <!-- Scope toggle (hidden – global only) -->
@@ -379,14 +367,13 @@
 
   <footer class="site-footer">
     <div class="site-footer__inner">
-      <div class="site-footer__brand">
-        <span class="site-footer__badge">Linc</span>
-        <div>
-          <p class="site-footer__title">DSN Reader beta</p>
-          <p class="site-footer__subtitle">Un outil propos&#233; par Linc</p>
-        </div>
-      </div>
-      <a class="site-footer__link" href="https://www.linc.fr" target="_blank" rel="noreferrer">linc.fr</a>
+      <a class="site-footer__brand" href="https://www.linc.fr?utm_source=dsn-reader&amp;utm_medium=tool&amp;utm_campaign=beta-footer" target="_blank" rel="noreferrer">
+        <img class="site-footer__logo" src="/static/logo-linc.svg" alt="Linc" width="60" height="24">
+      </a>
+      <nav class="site-footer__nav">
+        <a class="site-footer__nav-link" href="https://www.linc.fr/ressources/rgdu/simulateur?utm_source=dsn-reader&amp;utm_medium=tool&amp;utm_campaign=beta-footer&amp;utm_content=footer-rgdu" target="_blank" rel="noreferrer">Contr&#244;le RGDU</a>
+        <a class="site-footer__nav-link" href="https://www.linc.fr/ressources/cotisations/simulateur?utm_source=dsn-reader&amp;utm_medium=tool&amp;utm_campaign=beta-footer&amp;utm_content=footer-cotisations" target="_blank" rel="noreferrer">Contr&#244;le tranches et CET</a>
+      </nav>
     </div>
   </footer>
 
@@ -411,7 +398,7 @@
         </p>
 
         <div class="feedback-form__grid">
-          <label class="field">
+          <label class="field field--full">
             <span class="field__label">Type de retour</span>
             <select id="feedback-category" class="field__control" required>
               <option value="">Choisir</option>
@@ -456,7 +443,7 @@
           </svg>
         </div>
         <h3>Retour envoy&#233;</h3>
-        <p>Merci. Cl&#233;ment a re&#231;u votre message avec le contexte utile pour investiguer.</p>
+        <p>Merci pour votre retour. Nos &#233;quipes vont l&rsquo;analyser avec le fichier et le contexte transmis. Vos retours comptent, on construit cet outil avec vous.</p>
         <button id="feedback-done" class="btn btn--primary" type="button">Fermer</button>
       </div>
     </form>

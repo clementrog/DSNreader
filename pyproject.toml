@@ -16,6 +16,7 @@ server = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "python-multipart>=0.0.18",
+    "python-dotenv>=1.0",
 ]
 dev = [
     "pytest>=8.0",

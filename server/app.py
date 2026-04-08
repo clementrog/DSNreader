@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import html
 import json
 import logging
 import os
 import pathlib
 import re
-import urllib.error
-import urllib.request
-import uuid
 from typing import Any
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import resend
 
 from fastapi import FastAPI, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,7 +27,6 @@ from dsn_extractor.extractors import extract
 from dsn_extractor.parser import parse
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
-RESEND_API_URL = "https://api.resend.com/emails"
 FEEDBACK_TO_EMAIL = os.getenv("FEEDBACK_TO_EMAIL", "clement.rog.ext@linc.fr")
 FEEDBACK_FROM_EMAIL = os.getenv("FEEDBACK_FROM_EMAIL", "DSN Reader <onboarding@resend.dev>")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -171,10 +174,13 @@ def _send_feedback_email(
     email: str,
     phone: str,
     context: dict[str, Any],
+    attachment: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     api_key = os.getenv("RESEND_API_KEY")
     if not api_key:
         raise RuntimeError("Le service email n'est pas configuré.")
+
+    resend.api_key = api_key
 
     subject, html_body, text_body = _build_feedback_email(
         category=category,
@@ -183,7 +189,8 @@ def _send_feedback_email(
         phone=phone,
         context=context,
     )
-    payload = {
+
+    payload: dict[str, Any] = {
         "from": FEEDBACK_FROM_EMAIL,
         "to": [FEEDBACK_TO_EMAIL],
         "subject": subject,
@@ -192,26 +199,17 @@ def _send_feedback_email(
         "reply_to": email,
     }
 
-    request = urllib.request.Request(
-        RESEND_API_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Idempotency-Key": str(uuid.uuid4()),
-        },
-        method="POST",
-    )
+    if attachment:
+        payload["attachments"] = [{
+            "filename": attachment["filename"],
+            "content": list(base64.b64decode(attachment["content"])),
+        }]
 
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        logger.warning("Resend feedback email failed: %s", body)
-        raise RuntimeError("L'envoi du retour a échoué.") from exc
-    except urllib.error.URLError as exc:
-        logger.warning("Resend feedback email network failure: %s", exc)
+        result = resend.Emails.send(payload)
+        return {"id": result.get("id") if isinstance(result, dict) else getattr(result, "id", None)}
+    except Exception as exc:
+        logger.warning("Resend feedback email failed: %s", exc)
         raise RuntimeError("L'envoi du retour a échoué.") from exc
 
 
@@ -223,6 +221,11 @@ def health() -> dict[str, str]:
 @app.get("/", response_class=FileResponse)
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
+
+
+@app.get("/favicon.ico", response_class=FileResponse)
+def favicon() -> FileResponse:
+    return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
 
 
 @app.post("/api/extract")
@@ -271,6 +274,8 @@ async def api_feedback(request: Request) -> JSONResponse:
     phone = _safe_str(body.get("phone"), limit=64)
     consent = body.get("consent")
     context = _sanitize_feedback_context(body.get("context"))
+    file_base64 = body.get("file_base64")
+    file_name = _safe_str(body.get("file_name"), limit=200)
 
     if category not in {"improvement", "issue"}:
         return _error(400, "Type de retour invalide")
@@ -281,6 +286,12 @@ async def api_feedback(request: Request) -> JSONResponse:
     if consent is not True:
         return _error(400, "Le consentement est requis")
 
+    # Sanitize attachment: only accept base64 strings up to ~14MB (10MB file)
+    attachment = None
+    if isinstance(file_base64, str) and file_name and len(file_base64) <= 14_000_000:
+        safe_name = pathlib.Path(file_name).name
+        attachment = {"filename": safe_name, "content": file_base64}
+
     try:
         result = await asyncio.to_thread(
             _send_feedback_email,
@@ -289,6 +300,7 @@ async def api_feedback(request: Request) -> JSONResponse:
             email=email,
             phone=phone,
             context=context,
+            attachment=attachment,
         )
     except RuntimeError as exc:
         return _error(500, str(exc))

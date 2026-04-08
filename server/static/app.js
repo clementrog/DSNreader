@@ -122,6 +122,7 @@
     expandedContribItems: {},
     hasUploadAttempted: false,
     lastUploadFilename: null,
+    lastUploadFileBase64: null,
     feedbackOpen: false,
     feedbackSubmitting: false,
     feedbackSuccess: false,
@@ -343,8 +344,19 @@
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || "");
   }
 
+  function normalizePhone(raw) {
+    var digits = (raw || "").replace(/[\s.\-()]/g, "");
+    if (/^0[1-9]\d{8}$/.test(digits)) {
+      return "+33" + digits.slice(1);
+    }
+    if (/^\+?\d{10,15}$/.test(digits)) {
+      return digits.charAt(0) === "+" ? digits : "+" + digits;
+    }
+    return digits;
+  }
+
   function getThemeName() {
-    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+    return "light";
   }
 
   function getActiveQualityWarningCount() {
@@ -451,7 +463,7 @@
 
     var category = $feedbackCategory.value.trim();
     var email = $feedbackEmail.value.trim();
-    var phone = $feedbackPhone.value.trim();
+    var phone = normalizePhone($feedbackPhone.value);
     var message = $feedbackMessage.value.trim();
     var consent = $feedbackConsent.checked;
 
@@ -461,6 +473,10 @@
     }
     if (!validateEmail(email)) {
       setFeedbackError("Merci de renseigner un email valide.");
+      return;
+    }
+    if (phone.length < 10) {
+      setFeedbackError("Merci de renseigner un numéro de téléphone valide.");
       return;
     }
     if (!consent) {
@@ -482,6 +498,8 @@
           phone: phone,
           consent: consent,
           context: getFeedbackContext(),
+          file_base64: state.lastUploadFileBase64 || null,
+          file_name: state.lastUploadFilename || null,
         }),
       });
       var payload = await response.json();
@@ -1395,11 +1413,24 @@
     upload(file);
   }
 
+  function fileToBase64(file) {
+    return new Promise(function (resolve) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        resolve(reader.result.split(",")[1] || "");
+      };
+      reader.onerror = function () { resolve(null); };
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function upload(file) {
+    var b64 = await fileToBase64(file);
     setState({
       phase: "uploading",
       hasUploadAttempted: true,
       lastUploadFilename: file.name || null,
+      lastUploadFileBase64: b64,
     });
 
     var form = new FormData();
@@ -1453,6 +1484,7 @@
       expandedContribItems: {},
       hasUploadAttempted: false,
       lastUploadFilename: null,
+      lastUploadFileBase64: null,
       feedbackOpen: false,
       feedbackSubmitting: false,
       feedbackSuccess: false,
@@ -1619,19 +1651,7 @@
     if (state.phase === "empty") $fileInput.click();
   });
 
-  // ── Theme toggle ────────────────────────────────────────
-
-  var $themeToggle = document.getElementById("theme-toggle");
-  $themeToggle.addEventListener("click", function () {
-    var isLight = document.documentElement.getAttribute("data-theme") === "light";
-    if (isLight) {
-      document.documentElement.removeAttribute("data-theme");
-      localStorage.removeItem("dsn-theme");
-    } else {
-      document.documentElement.setAttribute("data-theme", "light");
-      localStorage.setItem("dsn-theme", "light");
-    }
-  });
+  // Theme toggle disabled — light theme only
 
   // Initial render
   render();
