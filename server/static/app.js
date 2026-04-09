@@ -107,6 +107,25 @@
     "retraite": "Retraite",
   };
 
+  // UI tab layer above the backend-facing family layer. Prévoyance + Mutuelle
+  // are merged at presentation level only — backend payloads still carry the
+  // original item.family values.
+  var CONTRIBUTION_TABS = ["urssaf", "pas", "retraite", "complementaires"];
+
+  var TAB_FAMILIES = {
+    "urssaf": ["urssaf"],
+    "pas": ["pas"],
+    "retraite": ["retraite"],
+    "complementaires": ["prevoyance", "mutuelle"],
+  };
+
+  var CONTRIBUTION_TAB_LABELS = {
+    "urssaf": "URSSAF",
+    "pas": "PAS",
+    "retraite": "Retraite",
+    "complementaires": "Organismes compl\u00e9mentaires",
+  };
+
   // ── State ────────────────────────────────────────────────
   var PAGES = ["controle"]; // "analyse", "tracking" hidden for now
 
@@ -116,7 +135,7 @@
     error: null,
     scope: "global",
     activeEstIdx: 0,
-    activeContributionFamily: "urssaf",
+    activeContributionTab: "urssaf",
     activePage: "controle",
     contribFilterEcartsOnly: true,
     expandedContribItems: {},
@@ -306,6 +325,10 @@
     return CONTRIBUTION_FAMILY_LABELS[family] || family || NOT_AVAILABLE;
   }
 
+  function formatTabLabel(tab) {
+    return CONTRIBUTION_TAB_LABELS[tab] || tab || NOT_AVAILABLE;
+  }
+
   function getStatusBadgeClass(status) {
     return "status-badge status-badge--" + (status || "non_calculable");
   }
@@ -384,7 +407,7 @@
       filename: state.lastUploadFilename || (state.data && state.data.source_file) || null,
       active_page: state.activePage || null,
       scope: state.scope,
-      active_contribution_family: state.activeContributionFamily || null,
+      active_contribution_tab: state.activeContributionTab || null,
       browser: navigator.userAgent || null,
       language: navigator.language || null,
       theme: getThemeName(),
@@ -934,8 +957,8 @@
       : countComparisonWarnings(items);
 
     renderTrustBanner(okCount, mismatchCount, warningCount);
-    renderContributionFamilyTabs(items);
-    renderContributionFamilyPanels(items);
+    renderContributionTabBar(items);
+    renderContributionTabPanels(items);
   }
 
   function renderTrustBanner(okCount, mismatchCount, warningCount) {
@@ -968,35 +991,44 @@
       + '</div>';
   }
 
-  function getInitialContributionFamily(data) {
+  function getInitialContributionTab(data) {
     var payload = (data && data.global_contribution_comparisons) || {};
     var items = Array.isArray(payload.items) ? payload.items : [];
-    var meta = computeFamilyMeta(items);
+    var meta = computeTabMeta(items);
     var statusOrder = { ecart: 0, warning: 1, ok: 2, empty: 3 };
     var best = "urssaf";
     var bestRank = 3;
-    CONTRIBUTION_FAMILIES.forEach(function (f) {
-      var rank = statusOrder[meta[f].worstStatus] || 3;
-      if (rank < bestRank) { bestRank = rank; best = f; }
+    CONTRIBUTION_TABS.forEach(function (t) {
+      var rank = statusOrder[meta[t].worstStatus] || 3;
+      if (rank < bestRank) { bestRank = rank; best = t; }
     });
     return best;
   }
 
-  function computeFamilyMeta(items) {
+  function computeTabMeta(items) {
+    // Build reverse map family → tab once per call.
+    var familyToTab = {};
+    CONTRIBUTION_TABS.forEach(function (tab) {
+      (TAB_FAMILIES[tab] || []).forEach(function (family) {
+        familyToTab[family] = tab;
+      });
+    });
+
     var meta = {};
-    CONTRIBUTION_FAMILIES.forEach(function (f) {
-      meta[f] = { count: 0, ecartCount: 0, warningCount: 0, worstStatus: "empty" };
+    CONTRIBUTION_TABS.forEach(function (t) {
+      meta[t] = { count: 0, ecartCount: 0, warningCount: 0, worstStatus: "empty" };
     });
     (items || []).forEach(function (item) {
-      var f = item && item.family ? item.family : "";
-      if (!meta[f]) return;
-      meta[f].count++;
-      if (item.status === "ecart") meta[f].ecartCount++;
+      var family = item && item.family ? item.family : "";
+      var tab = familyToTab[family];
+      if (!tab || !meta[tab]) return;
+      meta[tab].count++;
+      if (item.status === "ecart") meta[tab].ecartCount++;
       var w = collectComparisonWarnings(item);
-      if (w.length > 0) meta[f].warningCount++;
+      if (w.length > 0) meta[tab].warningCount++;
     });
-    CONTRIBUTION_FAMILIES.forEach(function (f) {
-      var m = meta[f];
+    CONTRIBUTION_TABS.forEach(function (t) {
+      var m = meta[t];
       if (m.count === 0) m.worstStatus = "empty";
       else if (m.ecartCount > 0) m.worstStatus = "ecart";
       else if (m.warningCount > 0) m.worstStatus = "warning";
@@ -1005,48 +1037,58 @@
     return meta;
   }
 
-  function renderContributionFamilyTabs(items) {
-    var familyMeta = computeFamilyMeta(items);
+  function renderContributionTabBar(items) {
+    var tabMeta = computeTabMeta(items);
 
-    // Fixed order: URSSAF, PAS, Prévoyance, Mutuelle, Retraite
-    $contribFamilyTabs.innerHTML = CONTRIBUTION_FAMILIES.map(function (family) {
-      var active = family === state.activeContributionFamily;
-      var m = familyMeta[family];
+    // Fixed order: URSSAF, PAS, Retraite, Organismes complémentaires
+    $contribFamilyTabs.innerHTML = CONTRIBUTION_TABS.map(function (tab) {
+      var active = tab === state.activeContributionTab;
+      var m = tabMeta[tab];
       var dotClass = 'family-dot family-dot--' + m.worstStatus;
       return '<button type="button" class="tab-bar__btn'
         + (active ? ' tab-bar__btn--active' : '')
-        + '" data-family="' + escapeHtml(family) + '">'
+        + '" data-tab="' + escapeHtml(tab) + '">'
         + '<span class="' + dotClass + '"></span>'
-        + escapeHtml(formatFamilyLabel(family))
+        + escapeHtml(formatTabLabel(tab))
         + ' (' + m.count + ')'
         + '</button>';
     }).join("");
   }
 
-  function renderContributionFamilyPanels(items) {
-    var byFamily = {};
-    CONTRIBUTION_FAMILIES.forEach(function (family) {
-      byFamily[family] = [];
+  function renderContributionTabPanels(items) {
+    var byTab = {};
+    CONTRIBUTION_TABS.forEach(function (tab) {
+      byTab[tab] = [];
+    });
+
+    // Reverse map family → tab for routing items into tab buckets.
+    var familyToTab = {};
+    CONTRIBUTION_TABS.forEach(function (tab) {
+      (TAB_FAMILIES[tab] || []).forEach(function (family) {
+        familyToTab[family] = tab;
+      });
     });
 
     (items || []).forEach(function (item) {
       var family = item && item.family ? item.family : "";
-      if (!byFamily[family]) byFamily[family] = [];
-      byFamily[family].push(item);
+      var tab = familyToTab[family];
+      if (tab && byTab[tab]) byTab[tab].push(item);
     });
 
-    var html = CONTRIBUTION_FAMILIES.map(function (family) {
-      var familyItems = byFamily[family] || [];
-      var hidden = family !== state.activeContributionFamily;
+    var html = CONTRIBUTION_TABS.map(function (tab) {
+      var tabItems = byTab[tab] || [];
+      var hidden = tab !== state.activeContributionTab;
       return '<section class="contrib-panel"' + (hidden ? ' hidden' : '') + '>'
-        + renderContributionFamilyPanelContent(family, familyItems)
+        + renderContributionTabPanelContent(tab, tabItems)
         + '</section>';
     }).join("");
 
-    // Render unclassified items (family not in CONTRIBUTION_FAMILIES)
+    // Render unclassified items (family not mapped to any tab via TAB_FAMILIES).
+    // prevoyance/mutuelle MUST NOT fall here because TAB_FAMILIES.complementaires covers them.
     var unclassifiedItems = [];
     (items || []).forEach(function (item) {
-      if (item && item.family && CONTRIBUTION_FAMILIES.indexOf(item.family) === -1) {
+      var family = item && item.family ? item.family : "";
+      if (family && !familyToTab[family]) {
         unclassifiedItems.push(item);
       }
     });
@@ -1060,11 +1102,11 @@
     $contribFamilyPanels.innerHTML = html;
   }
 
-  function renderContributionFamilyPanelContent(family, items) {
+  function renderContributionTabPanelContent(tab, items) {
     if (!items || items.length === 0) {
       return '<div class="contrib-empty">'
-        + '<strong>' + escapeHtml(formatFamilyLabel(family)) + '</strong>'
-        + 'Aucune donn\u00e9e disponible pour cette famille dans le r\u00e9sultat courant.'
+        + '<strong>' + escapeHtml(formatTabLabel(tab)) + '</strong>'
+        + 'Aucune donn\u00e9e disponible pour cet onglet dans le r\u00e9sultat courant.'
         + '</div>';
     }
 
@@ -1448,13 +1490,13 @@
         return;
       }
 
-      var initialFamily = getInitialContributionFamily(json);
+      var initialTab = getInitialContributionTab(json);
       setState({
         phase: "results",
         data: json,
         scope: "global",
         activeEstIdx: 0,
-        activeContributionFamily: initialFamily,
+        activeContributionTab: initialTab,
         feedbackOpen: false,
         feedbackSubmitting: false,
         feedbackSuccess: false,
@@ -1478,7 +1520,7 @@
       error: null,
       scope: "global",
       activeEstIdx: 0,
-      activeContributionFamily: "urssaf",
+      activeContributionTab: "urssaf",
       activePage: "controle",
       contribFilterEcartsOnly: true,
       expandedContribItems: {},
@@ -1566,9 +1608,9 @@
   $contribFamilyTabs.addEventListener("click", function (e) {
     var btn = e.target.closest(".tab-bar__btn");
     if (!btn) return;
-    var family = btn.dataset.family;
-    if (!family || family === state.activeContributionFamily) return;
-    setState({ activeContributionFamily: family });
+    var tab = btn.dataset.tab;
+    if (!tab || tab === state.activeContributionTab) return;
+    setState({ activeContributionTab: tab });
   });
 
   $contribFamilyPanels.addEventListener("click", function (e) {
