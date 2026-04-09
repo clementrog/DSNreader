@@ -1,0 +1,61 @@
+dsn . déclaration:
+  titre: S20 - Déclaration
+  avec:
+    déclaration: 
+      titre: S20.G00.05 - Déclaration
+      avec:
+        nature de la déclaration:
+          titre: S20.G00.05.001 - Nature de la déclaration
+          valeur: "'01'"
+        type de la déclaration:
+          titre: S20.G00.05.002 - Type de la déclaration
+          par défaut: "'01'"
+        numéro de fraction de déclaration:
+          titre: S20.G00.05.003 - Numéro de fraction de déclaration
+          par défaut: "'11'"
+        numéro d'ordre de la déclaration:
+          titre: S20.G00.05.004 - Numéro d'ordre de la déclaration
+          par défaut: "'1'"
+        date du mois principal déclaré:
+          titre: S20.G00.05.005 - Date du mois principal déclaré
+          par défaut: période de paie . premier jour du mois bulletin
+        identifiant de la déclaration annulée ou remplacée:
+          titre: S20.G00.05.006 - Identifiant de la déclaration annulée ou remplacée
+          valeur: "''"
+        date de constitution du fichier:
+          titre: S20.G00.05.007 - Date de constitution du fichier
+          par défaut: période de paie . dernier jour du mois
+        champ de la déclaration:
+          titre: S20.G00.05.008 - Champ de la déclaration
+          valeur: "'01'"
+        identifiant métier:
+          titre: S20.G00.05.009 - Identifiant métier
+          valeur: "''"
+        devise de la déclaration:
+          titre: S20.G00.05.010 - Devise de la déclaration
+          valeur: "'01'"
+        nature de l'événement déclencheur du signalement:
+          titre: S20.G00.05.011 - Nature de l'événement déclencheur du signalement
+          valeur: "''"
+        dernier SIRET connu pour ancien numéro de contrat:
+          titre: S20.G00.05.012 - Dernier SIRET connu pour ancien numéro de contrat
+          valeur: établissement . SIRET . code
+        type de nature de la DSN de substitution:
+          titre: S20.G00.05.013 - Type de nature de la DSN de substitution
+          valeur: "''"
+    contact chez le déclaré:
+      titre: S20.G00.07 - Contact chez le déclaré
+      avec:
+        nom et prénom du contact:
+          titre: S20.G00.07.001 - Nom et prénom du contact
+          valeur: entreprise . contact dsn . nom et prénom du contact
+        adresse téléphonique:
+          titre: S20.G00.07.002 - Adresse téléphonique
+          valeur: entreprise . contact dsn . téléphone du contact
+        adresse mél du contact:
+          titre: S20.G00.07.003 - Adresse mél du contact
+          valeur: entreprise . contact dsn . adresse mail du contact
+        type:
+          titre: S20.G00.07.004 - Type
+          valeur: "'08'"
+

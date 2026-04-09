@@ -1,0 +1,140 @@
+dsn:
+
+dsn . entête:
+  titre: S10 - Entête
+  avec:
+    envoi:
+      titre: S10.G00.00 - Envoi
+      avec:
+        nom du logiciel utilisé:
+          titre: S10.G00.00.001 - Nom de logiciel utilisé
+          valeur: "'LINC'"
+        nom de l'éditeur:
+          titre: S10.G00.00.002 - Nom de l'éditeur
+          valeur: "'LINC'"
+        numéro de version du logiciel utilisé:
+          titre: S10.G00.00.003 - Numéro de version du logiciel utilisé
+          valeur: "'20251230'"
+        code de conformité en pré-contrôle:
+          titre: S10.G00.00.004 - Code de conformité en pré-contrôle
+          valeur: "''"
+        envoi du fichier d'essai ou réel:
+          titre: S10.G00.00.005 - Envoi du fichier d'essai ou réel
+          valeur: "'02'"
+        numéro de version de la norme utilisée:
+          titre: S10.G00.00.006 - Numéro de version de la norme utilisée
+          valeur:
+            variations:
+              - si: date >= 01/2026
+                alors: "'P26V01'"
+              - si: date >= 01/2025
+                alors: "'P25V01'"
+              - sinon: "'P24V01'"
+        point de dépôt:
+          titre: S10.G00.00.007 - Point de dépôt
+          valeur: "'01'"
+        type de l'envoi:
+          titre: S10.G00.00.008 - Type de l'envoi
+          valeur: "'01'"
+    # emetteur:
+    #   titre: S10.G00.01 - Emetteur
+    #   avec:
+    #     siren de l'émetteur de l'envoi:
+    #       titre: S10.G00.01.001 - SIREN de l'émetteur de l'envoi
+    #       valeur: "'928067941'"
+    #     nic de l'émetteur de l'envoi:
+    #       titre: S10.G00.01.002 - NIC de l'émetteur de l'envoi
+    #       valeur: "'00015'"
+    #     nom ou raison sociale de l'émetteur:
+    #       titre: S10.G00.01.003 - Nom ou raison sociale de l'émetteur
+    #       valeur: "'LINC'"
+    #     numéro extension nature et libellé de la voie:
+    #       titre: S10.G00.01.004 - Numéro, extension, nature et libellé de la voie
+    #       valeur: "'9 RUE DES COLONNES'"
+    #     code postal:
+    #       titre: S10.G00.01.005 - Code postal
+    #       valeur: "'75002'"
+    #     localité:
+    #       titre: S10.G00.01.006 - Localité
+    #       valeur: "'PARIS'"
+    # contact:
+    #   titre: S10.G00.02 - Contact
+    #   avec:
+    #     code civilité:
+    #       titre: S10.G00.02.001 - Code civilité
+    #       valeur: "'01'"
+    #     nom et prénom de la personne à contacter:
+    #       titre: S10.G00.02.002 - Nom et prénom de la personne à contacter
+    #       valeur: "'de Priestere Thomas'"
+    #     adresse mél du contact émetteur:
+    #       titre: S10.G00.02.004 - Adresse mél du contact émetteur
+    #       valeur: "'declarations@linc.fr'"
+    #     adresse téléphonique:
+    #       titre: S10.G00.02.005 - Adresse téléphonique
+    #       valeur: "'0685550289'"
+    emetteur:
+      titre: S10.G00.01 - Emetteur
+      avec:
+        siren de l'émetteur de l'envoi:
+          titre: S10.G00.01.001 - SIREN de l'émetteur de l'envoi
+          par défaut: dsn . entête . emetteur . siren de l'émetteur de l'envoi display
+        nic de l'émetteur de l'envoi:
+          titre: S10.G00.01.002 - NIC de l'émetteur de l'envoi
+          par défaut: dsn . entête . emetteur . nic de l'émetteur de l'envoi display
+        nom ou raison sociale de l'émetteur:
+          titre: S10.G00.01.003 - Nom ou raison sociale de l'émetteur
+          par défaut: dsn . entête . emetteur . nom ou raison sociale de l'émetteur display
+        numéro extension nature et libellé de la voie:
+          titre: S10.G00.01.004 - Numéro, extension, nature et libellé de la voie
+          par défaut: dsn . entête . emetteur . numéro extension nature et libellé de la voie display
+        code postal:
+          titre: S10.G00.01.005 - Code postal
+          par défaut: dsn . entête . emetteur . code postal display
+        localité:
+          titre: S10.G00.01.006 - Localité
+          par défaut: dsn . entête . emetteur . localité display
+    contact:
+      titre: S10.G00.02 - Contact
+      avec:
+        code civilité:
+          titre: S10.G00.02.001 - Code civilité
+          par défaut: dsn . entête . contact . code civilité display
+        nom et prénom de la personne à contacter:
+          titre: S10.G00.02.002 - Nom et prénom de la personne à contacter
+          par défaut: dsn . entête . contact . nom et prénom de la personne à contacter display
+        adresse mél du contact émetteur:
+          titre: S10.G00.02.004 - Adresse mél du contact émetteur
+          par défaut: dsn . entête . contact . adresse mél du contact émetteur display
+        adresse téléphonique:
+          titre: S10.G00.02.005 - Adresse téléphonique
+          par défaut: dsn . entête . contact . adresse téléphonique display
+
+dsn . entête . emetteur . siren de l'émetteur de l'envoi display:
+  par défaut: "'928067941'"
+
+dsn . entête . emetteur . nic de l'émetteur de l'envoi display:
+  par défaut: "'00015'"
+
+dsn . entête . emetteur . nom ou raison sociale de l'émetteur display:
+  par défaut: "'LINC'"
+
+dsn . entête . emetteur . numéro extension nature et libellé de la voie display:
+  par défaut: "'9 RUE DES COLONNES'"
+
+dsn . entête . emetteur . code postal display:
+  par défaut: "'75002'"
+
+dsn . entête . emetteur . localité display:
+  par défaut: "'PARIS'"
+
+dsn . entête . contact . code civilité display:
+  par défaut: "'01'"
+
+dsn . entête . contact . nom et prénom de la personne à contacter display:
+  par défaut: "'de Priestere Thomas'"
+
+dsn . entête . contact . adresse mél du contact émetteur display:
+  par défaut: "'declarations@linc.fr'"
+
+dsn . entête . contact . adresse téléphonique display:
+  par défaut: "'0685550289'"

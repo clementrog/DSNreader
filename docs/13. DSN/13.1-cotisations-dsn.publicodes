@@ -1,0 +1,1687 @@
+dsn . base assujettie:
+  titre: S21.G00.78 - Base assujettie
+  avec:
+    code de base assujettie: 
+      titre: S21.G00.78.001 - Code de base assujettie
+      avec:
+        assiette brute déplafonnée 03:
+          avec:
+            # 78
+            code: "'03'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: 
+              titre: S21.G00.78.004 - Montant
+              valeur: salarié . cotisations . assiette
+              arrondi: 2 décimales
+            identifiant technique d'affiliation: "''"
+            numéro de contrat: salarié . contrat . numéro de contrat
+            # 79
+            smic: 
+              non applicable si:
+                une de ces conditions:
+                  - salarié . contrat . stage
+                  - dirigeant
+              avec:
+                type de composant de base assujettie: "'01'"
+                montant de composant de base assujettie:
+                  valeur: salarié . temps de travail . réduction générale cotisations . SMIC
+                  arrondi: 2 décimales
+            taxe sur les salaires: 
+              applicable si: salarié . cotisations . taxe sur les salaires
+              avec:
+                type de composant de base assujettie: "'91'"
+                montant de composant de base assujettie:
+                  valeur: salarié . cotisations . taxe sur les salaires . assiette
+                  arrondi: 2 décimales
+            # 81
+            cotisation individuelle:
+              avec:
+                # RETRAITE 105:
+                #   avec:
+                #     code de cotisation individuelle: "'105'" #001
+                #     identifiant Organisme de Protection Sociale: "''" #002
+                #     montant d'assiette: "''" #003
+                #     montant de cotisation:   #004
+                #       variations:
+                #         - si: salarié . contrat . stage
+                #           alors: 0
+                #         - sinon: 0
+                #             # somme:
+                #             #   - salarié . cotisations . CEG
+                #             #   - salarié . cotisations . CET
+                #             #   - salarié . cotisations . retraite complémentaire
+                #             #   - salarié . cotisations . APEC
+                #       arrondi: 2 décimales
+                #     taux de cotisation:  #007
+                RETRAITE 131:
+                  avec:
+                    code de cotisation individuelle: "'131'" #001
+                    identifiant Organisme de Protection Sociale: "''" #002
+                    montant d'assiette: "''" #003
+                    montant de cotisation:   #004
+                      variations:
+                        - si: salarié . contrat . stage
+                          alors: "'0.00'"
+                        - sinon:
+                            somme:
+                              - salarié . cotisations . CEG . employeur . montant T2
+                              - salarié . cotisations . CEG . salarié . montant T2
+                              - salarié . cotisations . CET
+                              - salarié . cotisations . retraite complémentaire . employeur . montant T2
+                              - salarié . cotisations . retraite complémentaire . salarié . montant T2
+                              # - salarié . cotisations . APEC
+                      arrondi: 2 décimales
+                    taux de cotisation:  #007
+                RETRAITE 132:
+                  applicable si: 
+                    une de ces conditions:
+                      - salarié . cotisations . APEC > 0
+                      - salarié . cotisations . APEC < 0
+                  avec:
+                    code de cotisation individuelle: "'132'" #001
+                    identifiant Organisme de Protection Sociale: "''" #002
+                    montant d'assiette: "''" #003
+                    montant de cotisation:   #004
+                      variations:
+                        - si: salarié . contrat . stage
+                          alors: "'0.00'"
+                        - sinon:
+                            valeur: salarié . cotisations . APEC
+                      arrondi: 2 décimales
+                    taux de cotisation:  #007
+                ATMP 045:
+                  avec:
+                    code de cotisation individuelle: "'045'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . ATMP  #004
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . ATMP . taux * 100 #007
+                      arrondi: 2 décimales
+                CSA 068:
+                  avec:
+                    code de cotisation individuelle: "'068'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . CSA  #004
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . CSA . taux * 100 #007
+                      arrondi: 2 décimales
+                AF 074:
+                  avec:
+                    code de cotisation individuelle: "'074'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . allocations familiales . montant taux réduit  #004
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . allocations familiales . taux . taux 2 * 100 #007
+                      arrondi: 2 décimales
+                AF COMPLEMENT 102:
+                  non applicable si: salarié . cotisations . allocations familiales . taux réduit
+                  avec:
+                    code de cotisation individuelle: "'102'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      somme: 
+                        - salarié . cotisations . allocations familiales . montant complément . base #003
+                        - salarié . cotisations . allocations familiales JEI non exo . base
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      somme: 
+                        - salarié . cotisations . allocations familiales . montant complément  #004
+                        - salarié . cotisations . allocations familiales JEI non exo
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      somme: 
+                        - salarié . cotisations . allocations familiales . taux . taux complément * 100 #007
+                        - salarié . cotisations . allocations familiales JEI non exo . taux
+                      arrondi: 2 décimales
+                MALADIE ALSACE MOSELLE 115:
+                  applicable si: salarié . régimes spécifiques . alsace moselle
+                  avec:
+                    code de cotisation individuelle: "'115'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . maladie . salarié #004
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . maladie . salarié . taux * 100 #007
+                      arrondi: 2 décimales
+                MALADIE 075:
+                  avec:
+                    code de cotisation individuelle: "'075'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      somme: 
+                        - salarié . cotisations . maladie . employeur . base #003
+                        # - salarié . cotisations . maladie JEI non exo . base
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      somme: 
+                        - salarié . cotisations . maladie . employeur . montant cotisations taux réduit 
+                        - salarié . cotisations . maladie . salarié
+                        # - salarié . cotisations . maladie JEI non exo . salarié
+                      arrondi: 2 décimales
+                    taux de cotisation: #007
+                      somme:
+                        - salarié . cotisations . maladie . employeur . taux . taux 2 * 100
+                        - salarié . cotisations . maladie . salarié . taux * 100
+                        # - salarié . cotisations . maladie JEI non exo . salarié . taux * 100
+                      arrondi: 2 décimales
+                VIELLESSE DEPLAFONNEE 076:
+                  non applicable si: salarié . contrat . apprentissage
+                  avec:
+                    code de cotisation individuelle: "'076'"
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET
+                    montant d'assiette: 
+                      somme: 
+                        - salarié . cotisations . vieillesse . base déplafonnée
+                        - salarié . cotisations . vieillesse JEI non exo . employeur . déplafonnée . base
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      somme:
+                        - salarié . cotisations . vieillesse . employeur . déplafonnée
+                        - salarié . cotisations . vieillesse . salarié . déplafonnée
+                        - salarié . cotisations . vieillesse JEI non exo . employeur . déplafonnée
+                        - salarié . cotisations . vieillesse JEI non exo . salarié . déplafonnée
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      somme:
+                        - salarié . cotisations . vieillesse . employeur . déplafonnée . taux * 100
+                        - salarié . cotisations . vieillesse . salarié . déplafonnée . taux * 100
+                        - salarié . cotisations . vieillesse JEI non exo . salarié . déplafonnée . taux * 100
+                        - salarié . cotisations . vieillesse JEI non exo . employeur . déplafonnée . taux * 100
+                      arrondi: 2 décimales
+                VIEILLESSE DEPLAFONNEE APPRENTIS EXO:
+                  applicable si: salarié . contrat . apprentissage
+                  avec:
+                    code de cotisation individuelle: "'076'"
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET
+                    montant d'assiette: salarié . cotisations . assiette - salarié . contrat . apprentissage . assiette réduite apprentissage
+                    montant de cotisation: 
+                      valeur: montant d'assiette * 2.02%
+                      arrondi: 2 décimales
+                    taux de cotisation: "'2.02'"
+                VIEILLESSE DEPLAFONNEE APPRENTIS NON EXO:
+                  applicable si: salarié . contrat . apprentissage
+                  avec:
+                    code de cotisation individuelle: "'076'"
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET
+                    montant d'assiette: salarié . contrat . apprentissage . assiette réduite apprentissage
+                    montant de cotisation: 
+                      valeur: montant d'assiette * 2.42%
+                      arrondi: 2 décimales
+                    taux de cotisation: "'2.42'"
+                DIALOGUE SOCIAL 100:
+                  avec:
+                    code de cotisation individuelle: "'100'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . contribution au dialogue social  #004
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: "'0.016'" #007
+                      arrondi: 4 décimales
+                CFP 128:
+                  avec:
+                    code de cotisation individuelle: "'128'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . formation professionnelle  #004
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . formation professionnelle . taux * 100 #007
+                      arrondi: 2 décimales
+                APPRENTISSAGE PRINCIPAL 130:
+                  avec:
+                    code de cotisation individuelle: "'130'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . taxe d'apprentissage . part principale . base #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . taxe d'apprentissage . part principale  #004
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . taxe d'apprentissage . part principale . taux * 100 #007
+                      arrondi: 2 décimales
+                COMPLEMENT MALADIE 907:
+                  non applicable si: salarié . cotisations . maladie . employeur . taux réduit
+                  avec:
+                    code de cotisation individuelle: "'907'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      somme: 
+                        - salarié . cotisations . maladie . employeur . montant cotisations complément . base #003
+                        - salarié . cotisations . maladie JEI non exo . employeur . base
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      somme: 
+                        - salarié . cotisations . maladie . employeur . montant cotisations complément  #004
+                        - salarié . cotisations . maladie JEI non exo . employeur
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      somme: 
+                        - salarié . cotisations . maladie . employeur . montant cotisations complément . taux * 100 #007
+                        - salarié . cotisations . maladie JEI non exo . employeur . taux * 100
+                      arrondi: 2 décimales
+                RGCP URSSAF 018:
+                  non applicable si: 
+                    une de ces conditions:
+                      - dirigeant
+                      - salarié . contrat . stage
+                      - salarié . cotisations . statut JEI
+                      - salarié . cotisations . exonérations . réduction générale . cotisations patronales = 0
+                  avec:
+                    code de cotisation individuelle: "'018'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: 0 - salarié . cotisations . exonérations . réduction générale . cotisations patronales #004
+                      arrondi: 2 décimales
+                RGCP RETRAITE 106:
+                  non applicable si: 
+                    une de ces conditions:
+                      - dirigeant
+                      - salarié . contrat . stage
+                      - salarié . cotisations . statut JEI
+                      - salarié . cotisations . exonérations . réduction générale . cotisations patronales retraites = 0
+                  avec:
+                    code de cotisation individuelle: "'106'" #001
+                    identifiant Organisme de Protection Sociale: "''"
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: 0 - salarié . cotisations . exonérations . réduction générale . cotisations patronales retraites #004
+                      arrondi: 2 décimales
+                DEDUCTION PATRONALE HS 021:
+                  applicable si: salarié . cotisations . exonérations . heures supplémentaires . employeur
+                  avec:
+                    code de cotisation individuelle: "'021'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: (salarié . traitement en paie . temps . heures supplémentaires-complémentaires - salarié . heures complémentaires . nombre + salarié . traitement en paie . temps . heures dimanche-nuit-jours fériés + salarié . rémunération . rachat RTT . exonération d'heures supplémentaires . employeur)
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: 0 - salarié . cotisations . exonérations . heures supplémentaires . employeur
+                      arrondi: 2 décimales
+                EXONERATION HS 114:
+                  applicable si: salarié . cotisations . exonérations . heures supplémentaires . salarié
+                  avec:
+                    code de cotisation individuelle: "'114'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . exonérations . heures supplémentaires . salarié . base
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: 0 - salarié . cotisations . exonérations . heures supplémentaires . salarié
+                      arrondi: 2 décimales
+                EXONERATION URSSAF APPRENTIS:
+                  applicable si: salarié . contrat . apprentissage
+                  avec:
+                    code de cotisation individuelle:
+                      variations:
+                        - si: 
+                            toutes ces conditions:
+                              - entreprise . salariés . effectif @{ A } > 10
+                              - entreprise . salariés . effectif @{ A-1 } > 10
+                              - entreprise . salariés . effectif @{ A-2 } > 10
+                              - entreprise . salariés . effectif @{ A-3 } > 10
+                              - entreprise . salariés . effectif @{ A-4 } > 10
+                              - entreprise . salariés . effectif @{ A-5 } > 10
+                          alors: "'002'"
+                        - sinon: "'001'"
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette - salarié . contrat . apprentissage . assiette réduite apprentissage
+                      arrondi: 2 décimales
+                EXONERATION RETRAITE APPRENTIS:
+                  applicable si: salarié . contrat . apprentissage
+                  avec:
+                    code de cotisation individuelle: "'109'"
+                    identifiant Organisme de Protection Sociale: "''"
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette - salarié . contrat . apprentissage . assiette réduite apprentissage
+                      arrondi: 2 décimales
+                EXONERATION JEI 014:
+                  applicable si: salarié . cotisations . statut JEI
+                  avec:
+                    code de cotisation individuelle: "'014'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . vieillesse JEI exo . employeur . déplafonnée . base
+                      arrondi: 2 décimales
+                EXONERATION STAGE 022:
+                  applicable si: salarié . contrat . stage
+                  avec:
+                    code de cotisation individuelle: "'022'" #001
+                    identifiant Organisme de Protection Sociale: "''"
+                    montant d'assiette: 
+                      valeur: salarié . contrat . stage . exonération de cotisations #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: "''" #004
+                FORMATION PROFESSIONNELLE CONVENTIONNELLE 141:
+                  avec:
+                    code de cotisation individuelle: "'141'" #001
+                    identifiant Organisme de Protection Sociale: "''"
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . formation professionnelle . conventionnel #004
+        assiette brute plafonnée 02:
+          avec:
+            # 78
+            code: "'02'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: 
+              titre: S21.G00.78.004 - Montant
+              valeur: Tranche A du mois
+              arrondi: 2 décimales
+            identifiant technique d'affiliation: "''"
+            numéro de contrat: salarié . contrat . numéro de contrat
+            # 79
+            type de composant de base assujettie: "''"
+            montant de composant de base assujettie: "''"
+            # 81
+            cotisation individuelle:
+              avec:
+                FNAL 049:
+                  avec:
+                    code de cotisation individuelle: "'049'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: Tranche A du mois #003
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . FNAL  #004
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . FNAL . taux * 100 #007
+                      arrondi: 2 décimales
+                VIELLESSE PLAFONNEE 076:
+                  non applicable si: salarié . contrat . apprentissage
+                  avec:
+                    code de cotisation individuelle: "'076'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      somme: 
+                        - salarié . cotisations . vieillesse . salarié . plafonnée . base #003
+                        - salarié . cotisations . vieillesse JEI non exo . employeur . plafonnée . base
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      somme:
+                        - salarié . cotisations . vieillesse . employeur . plafonnée
+                        - salarié . cotisations . vieillesse . salarié . plafonnée
+                        - salarié . cotisations . vieillesse JEI non exo . employeur . plafonnée
+                        - salarié . cotisations . vieillesse JEI non exo . salarié . plafonnée
+                      arrondi: 2 décimales
+                    taux de cotisation: #007
+                      somme:
+                        - salarié . cotisations . vieillesse . employeur . plafonnée . taux * 100
+                        - salarié . cotisations . vieillesse . salarié . plafonnée . taux * 100
+                        - salarié . cotisations . vieillesse JEI non exo . employeur . plafonnée . taux * 100
+                        - salarié . cotisations . vieillesse JEI non exo . salarié . plafonnée . taux * 100
+                      arrondi: 2 décimales
+                VIEILLESSE DEPLAFONNEE APPRENTIS EXO:
+                  applicable si: salarié . contrat . apprentissage
+                  avec:
+                    code de cotisation individuelle: "'076'"
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET
+                    montant d'assiette: salarié . cotisations . assiette - salarié . contrat . apprentissage . assiette réduite apprentissage
+                    montant de cotisation: 
+                      valeur: montant d'assiette * 8.55%
+                      arrondi: 2 décimales
+                    taux de cotisation: "'8.55'"
+                VIEILLESSE DEPLAFONNEE APPRENTIS NON EXO:
+                  applicable si: salarié . contrat . apprentissage
+                  avec:
+                    code de cotisation individuelle: "'076'"
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET
+                    montant d'assiette: salarié . contrat . apprentissage . assiette réduite apprentissage
+                    montant de cotisation: 
+                      valeur: montant d'assiette * 15.45%
+                      arrondi: 2 décimales
+                    taux de cotisation: "'1.45'"
+                RETRAITE 131:
+                  avec:
+                    code de cotisation individuelle: "'131'" #001
+                    identifiant Organisme de Protection Sociale: "''" #002
+                    montant d'assiette: "''" #003
+                    montant de cotisation:   #004
+                      variations:
+                        - si: salarié . contrat . stage
+                          alors: "'0.00'"
+                        - sinon:
+                            somme:
+                              - salarié . cotisations . CEG . employeur . montant T1
+                              - salarié . cotisations . CEG . salarié . montant T1
+                              # - salarié . cotisations . CET
+                              - salarié . cotisations . retraite complémentaire . employeur . montant T1
+                              - salarié . cotisations . retraite complémentaire . salarié . montant T1
+                              # - salarié . cotisations . APEC
+                      arrondi: 2 décimales
+                    taux de cotisation:  #007
+                RETRAITE 142:
+                  avec:
+                    code de cotisation individuelle: "'142'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: "''" #003
+                    montant de cotisation:   #004
+                      variations:
+                        - si: salarié . contrat . stage
+                          alors: "'0.00'"
+                        - sinon:
+                            somme:
+                              - salarié . cotisations . CEG . employeur . montant T1
+                              # - salarié . cotisations . CEG . salarié . montant T1
+                              # - salarié . cotisations . CET
+                              - salarié . cotisations . retraite complémentaire . employeur . montant T1
+                              # - salarié . cotisations . retraite complémentaire . salarié . montant T1
+                              # - salarié . cotisations . APEC
+                      arrondi: 2 décimales
+                    taux de cotisation:  #007
+                EXONERATION URSSAF APPRENTIS:
+                  applicable si: salarié . contrat . apprentissage
+                  avec:
+                    code de cotisation individuelle:
+                      variations:
+                        - si: 
+                            toutes ces conditions:
+                              - entreprise . salariés . effectif @{ A } > 10
+                              - entreprise . salariés . effectif @{ A-1 } > 10
+                              - entreprise . salariés . effectif @{ A-2 } > 10
+                              - entreprise . salariés . effectif @{ A-3 } > 10
+                              - entreprise . salariés . effectif @{ A-4 } > 10
+                              - entreprise . salariés . effectif @{ A-5 } > 10
+                          alors: "'002'"
+                        - sinon: "'001'"
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette - salarié . contrat . apprentissage . assiette réduite apprentissage
+                      arrondi: 2 décimales
+                EXONERATION RETRAITE APPRENTIS:
+                  applicable si: salarié . contrat . apprentissage
+                  avec:
+                    code de cotisation individuelle: "'109'"
+                    identifiant Organisme de Protection Sociale: "''"
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . assiette - salarié . contrat . apprentissage . assiette réduite apprentissage
+                      arrondi: 2 décimales
+                EXONERATION JEI 014:
+                  applicable si: salarié . cotisations . statut JEI
+                  avec:
+                    code de cotisation individuelle: "'014'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . vieillesse JEI exo . employeur . plafonnée . base
+                      arrondi: 2 décimales
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 tranche A:
+          applicable si: prévoyance . base prévoyance DSN éclatée selon tranche
+          avec:
+            #78
+            code: "'31'" #001
+            date de début de période de rattachement: #02
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement: #003
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'" #004
+              # somme:
+              #   - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   # - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: prévoyance . identifiant technique affiliation #005
+            numéro de contrat: salarié . contrat . numéro de contrat #006
+            #79
+            tranche A:
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TA #001
+                montant de composant de base assujettie: 
+                  valeur: salarié . cotisations . prévoyances . base . TA + salarié . cotisations . prévoyances . régularisation . salarié . base . TA #004
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:
+              avec:
+                PREVOYANCE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      somme: 
+                        - salarié . cotisations . prévoyances . salarié . montant TA
+                        - salarié . cotisations . prévoyances . employeur . montant TA
+                        - salarié . cotisations . prévoyances . régularisation . salarié . montant TA
+                        - salarié . cotisations . prévoyances . régularisation . employeur . montant TA
+                      arrondi: 2 décimales
+                    taux de cotisation: #007
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 tranche B:
+          applicable si: 
+            toutes ces conditions:
+              - prévoyance . base prévoyance DSN éclatée selon tranche
+              - salarié . cotisations . bases bulletins . tranche B
+              - salarié . cotisations . bases bulletins . tranche B != 0
+              - Tranche B du mois != 0
+          avec:
+            #78
+            code: "'31'" #001
+            date de début de période de rattachement: #02
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement: #003
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'" #004
+              # somme:
+              #   - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   # - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: prévoyance . identifiant technique affiliation 1 #005
+            numéro de contrat: salarié . contrat . numéro de contrat #006
+            #79
+            tranche B:
+              applicable si: 
+                toutes ces conditions: 
+                  - salarié . cotisations . bases bulletins . tranche B
+                  - salarié . cotisations . bases bulletins . tranche B != 0
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TB #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: salarié . cotisations . bases bulletins . tranche B
+                      alors: salarié . cotisations . bases bulletins . tranche B + salarié . cotisations . prévoyances . régularisation . salarié . base . TB
+                    - sinon: "''"
+                  # valeur: salarié . cotisations . bases bulletins . tranche B #004
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:
+              avec:
+                PREVOYANCE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      somme: 
+                        - salarié . cotisations . prévoyances . salarié . montant TB
+                        - salarié . cotisations . prévoyances . employeur . montant TB
+                        - salarié . cotisations . prévoyances . régularisation . salarié . montant TB
+                        - salarié . cotisations . prévoyances . régularisation . employeur . montant TB
+                      arrondi: 2 décimales
+                    taux de cotisation: #007
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31:
+          applicable si: prévoyance
+          non applicable si: 
+            une de ces conditions: 
+              - prévoyance . base prévoyance DSN éclatée selon tranche
+              - prévoyance . base prévoyance DSN éclatée selon code option
+          avec:
+            #78
+            code: "'31'" #001
+            date de début de période de rattachement: #02
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement: #003
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'" #004
+              # somme:
+              #   - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   # - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: prévoyance . identifiant technique affiliation #005
+            numéro de contrat: salarié . contrat . numéro de contrat #006
+            #79
+            tranche A:
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TA #001
+                montant de composant de base assujettie: 
+                  valeur: salarié . cotisations . prévoyances . base . TA + salarié . cotisations . prévoyances . régularisation . salarié . base . TA #004
+                  arrondi: 2 décimales
+            tranche B:
+              applicable si: 
+                toutes ces conditions: 
+                  - salarié . cotisations . bases bulletins . tranche B
+                  - salarié . cotisations . bases bulletins . tranche B != 0
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TB #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: salarié . cotisations . bases bulletins . tranche B
+                      alors: salarié . cotisations . bases bulletins . tranche B + salarié . cotisations . prévoyances . régularisation . salarié . base . TB
+                    - sinon: "''"
+                  # valeur: salarié . cotisations . bases bulletins . tranche B #004
+                  arrondi: 2 décimales
+            tranche C:
+              applicable si: 
+                toutes ces conditions: 
+                  - salarié . cotisations . bases bulletins . tranche C
+                  - salarié . cotisations . bases bulletins . tranche C != 0
+                  - Tranche C du mois != 0
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TC #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: salarié . cotisations . bases bulletins . tranche C
+                      alors: salarié . cotisations . bases bulletins . tranche C + salarié . cotisations . prévoyances . régularisation . salarié . base . TC
+                    - sinon: "''"
+                  # valeur: salarié . cotisations . bases bulletins . tranche C #004
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:
+              avec:
+                PREVOYANCE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      # valeur: salarié . cotisations . prévoyances #004
+                      somme: 
+                        - salarié . cotisations . prévoyances . salarié . montant TA
+                        - salarié . cotisations . prévoyances . employeur . montant TA
+                        - salarié . cotisations . prévoyances . régularisation . salarié . montant TA
+                        - salarié . cotisations . prévoyances . régularisation . employeur . montant TA
+                        - salarié . cotisations . prévoyances . salarié . montant TB
+                        - salarié . cotisations . prévoyances . employeur . montant TB
+                        - salarié . cotisations . prévoyances . régularisation . salarié . montant TB
+                        - salarié . cotisations . prévoyances . régularisation . employeur . montant TB
+                        # - salarié . cotisations . prévoyances #004
+                        # - salarié . cotisations . prévoyances . régularisation
+                      arrondi: 2 décimales
+                    taux de cotisation: #007
+
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 option 0:
+          applicable si: 
+            toutes ces conditions: 
+              - prévoyance . base prévoyance DSN éclatée selon tranche = non
+              - prévoyance . base prévoyance DSN éclatée selon code option
+              - prévoyance . base prévoyance DSN éclatée selon code option . option 0 montant != 0
+          avec:
+            #78
+            code: "'31'" #001
+            date de début de période de rattachement: #02
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement: #003
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'" #004
+              # somme:
+              #   - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   # - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: prévoyance . identifiant technique affiliation #005
+            numéro de contrat: salarié . contrat . numéro de contrat #006
+            #79
+            tranche A:
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TA #001
+                montant de composant de base assujettie: 
+                  valeur: salarié . cotisations . prévoyances . base . TA #004
+                  arrondi: 2 décimales
+            tranche B:
+              applicable si: 
+                toutes ces conditions: 
+                  - salarié . cotisations . bases bulletins . tranche B
+                  - salarié . cotisations . bases bulletins . tranche B != 0
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TB #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: salarié . cotisations . bases bulletins . tranche B
+                      alors: salarié . cotisations . bases bulletins . tranche B
+                    - sinon: "''"
+                  # valeur: salarié . cotisations . bases bulletins . tranche B #004
+                  arrondi: 2 décimales
+            tranche C:
+              applicable si: 
+                toutes ces conditions: 
+                  - salarié . cotisations . bases bulletins . tranche C
+                  - salarié . cotisations . bases bulletins . tranche C != 0
+                  - Tranche C du mois != 0
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TC #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: salarié . cotisations . bases bulletins . tranche C
+                      alors: salarié . cotisations . bases bulletins . tranche C
+                    - sinon: "''"
+                  # valeur: salarié . cotisations . bases bulletins . tranche C #004
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:
+              avec:
+                PREVOYANCE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      valeur: prévoyance . base prévoyance DSN éclatée selon code option . option 0 montant #004
+                      arrondi: 2 décimales
+                    taux de cotisation: #007
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 option 1:
+          applicable si: 
+            toutes ces conditions: 
+              - prévoyance . base prévoyance DSN éclatée selon tranche = non
+              - prévoyance . base prévoyance DSN éclatée selon code option
+              - prévoyance . base prévoyance DSN éclatée selon code option . option 1 montant != 0
+          avec:
+            #78
+            code: "'31'" #001
+            date de début de période de rattachement: #02
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement: #003
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'" #004
+              # somme:
+              #   - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   # - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: prévoyance . identifiant technique affiliation 1 #005
+            numéro de contrat: salarié . contrat . numéro de contrat #006
+            #79
+            tranche A:
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TA #001
+                montant de composant de base assujettie: 
+                  valeur: salarié . cotisations . prévoyances . base . TA #004
+                  arrondi: 2 décimales
+            tranche B:
+              applicable si: 
+                toutes ces conditions: 
+                  - salarié . cotisations . bases bulletins . tranche B
+                  - salarié . cotisations . bases bulletins . tranche B != 0
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TB #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: salarié . cotisations . bases bulletins . tranche B
+                      alors: salarié . cotisations . bases bulletins . tranche B
+                    - sinon: "''"
+                  # valeur: salarié . cotisations . bases bulletins . tranche B #004
+                  arrondi: 2 décimales
+            tranche C:
+              applicable si: 
+                toutes ces conditions: 
+                  - salarié . cotisations . bases bulletins . tranche C
+                  - salarié . cotisations . bases bulletins . tranche C != 0
+                  - Tranche C du mois != 0
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TC #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: salarié . cotisations . bases bulletins . tranche C
+                      alors: salarié . cotisations . bases bulletins . tranche C
+                    - sinon: "''"
+                  # valeur: salarié . cotisations . bases bulletins . tranche C #004
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:
+              avec:
+                PREVOYANCE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      valeur: prévoyance . base prévoyance DSN éclatée selon code option . option 1 montant #004
+                      arrondi: 2 décimales
+                    taux de cotisation: #007
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 option 2:
+          applicable si: 
+            toutes ces conditions: 
+              - prévoyance . base prévoyance DSN éclatée selon tranche = non
+              - prévoyance . base prévoyance DSN éclatée selon code option
+              - prévoyance . base prévoyance DSN éclatée selon code option . option 2 montant != 0
+          avec:
+            #78
+            code: "'31'" #001
+            date de début de période de rattachement: #02
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement: #003
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'" #004
+              # somme:
+              #   - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   # - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: prévoyance . identifiant technique affiliation 2 #005
+            numéro de contrat: salarié . contrat . numéro de contrat #006
+            #79
+            tranche A:
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TA #001
+                montant de composant de base assujettie: 
+                  valeur: salarié . cotisations . prévoyances . base . TA #004
+                  arrondi: 2 décimales
+            tranche B:
+              applicable si: 
+                toutes ces conditions: 
+                  - salarié . cotisations . bases bulletins . tranche B
+                  - salarié . cotisations . bases bulletins . tranche B != 0
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TB #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: salarié . cotisations . bases bulletins . tranche B
+                      alors: salarié . cotisations . bases bulletins . tranche B
+                    - sinon: "''"
+                  # valeur: salarié . cotisations . bases bulletins . tranche B #004
+                  arrondi: 2 décimales
+            tranche C:
+              applicable si: 
+                toutes ces conditions: 
+                  - salarié . cotisations . bases bulletins . tranche C
+                  - salarié . cotisations . bases bulletins . tranche C != 0
+                  - Tranche C du mois != 0
+              avec: 
+                type de composant de base assujettie: prévoyance . type de base ou forfait TC #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: salarié . cotisations . bases bulletins . tranche C
+                      alors: salarié . cotisations . bases bulletins . tranche C
+                    - sinon: "''"
+                  # valeur: salarié . cotisations . bases bulletins . tranche C #004
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:
+              avec:
+                PREVOYANCE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      valeur: prévoyance . base prévoyance DSN éclatée selon code option . option 2 montant #004
+                      arrondi: 2 décimales
+                    taux de cotisation: #007
+
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 mutuelle:
+          applicable si: 
+            toutes ces conditions:
+              # - salarié . cotisations . prévoyances . santé
+              # - salarié . cotisations . prévoyances . santé != 0
+              - mutuelle . montant du versement
+              - mutuelle . montant du versement != 0
+              - mutuelle . contrat . socle != 0
+          avec:
+            #78
+            code: "'31'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'"
+              # somme:
+              #   # - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: mutuelle . identifiant technique affiliation
+            numéro de contrat: salarié . contrat . numéro de contrat
+            #79
+            type 20:
+              avec:
+                # type de composant de base assujettie: "'20'" #001
+                type de composant de base assujettie: 
+                  valeur: mutuelle . type de base ou forfait
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: mutuelle . contrat unique
+                      alors: mutuelle . montant du versement
+                    - sinon: mutuelle . contrat . socle
+                  # valeur: mutuelle . contrat . socle #004
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:  
+              avec:
+                MUTUELLE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      variations:
+                        - si: mutuelle . contrat unique
+                          alors: mutuelle . montant du versement
+                        - sinon: mutuelle . contrat . socle
+                      # valeur: mutuelle . contrat . socle #004
+                      arrondi: 2 décimales
+                      # somme: 
+                      #   - salarié . cotisations . prévoyances . santé #004
+                      #   - mutuelle . contrat . surcomplémentaire . employeur
+                      #   - mutuelle . contrat . surcomplémentaire . salarié
+                    # arrondi: 2 décimales
+                    taux de cotisation:
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 mutuelle base option 1:
+          applicable si: 
+            toutes ces conditions:
+              # - salarié . cotisations . prévoyances . santé
+              # - salarié . cotisations . prévoyances . santé != 0
+              - mutuelle . montant du versement
+              - mutuelle . montant du versement != 0
+              - mutuelle . contrat . option 1 != 0
+              - mutuelle . identifiant technique affiliation 1 != 0
+              - mutuelle . contrat unique = non
+          avec:
+            #78
+            code: "'31'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'"
+              # somme:
+              #   # - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: mutuelle . identifiant technique affiliation 1
+            numéro de contrat: salarié . contrat . numéro de contrat
+            #79
+            type 20:
+              avec:
+                type de composant de base assujettie: "'20'" #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: mutuelle . contrat unique
+                      alors: "''"
+                    - sinon: mutuelle . contrat . option 1
+                  # valeur: mutuelle . contrat . option 1 #004
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:  
+              avec:
+                MUTUELLE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      variations:
+                        - si: mutuelle . contrat unique
+                          alors: "''"
+                        - sinon: mutuelle . contrat . option 1
+                      arrondi: 2 décimales
+                    taux de cotisation:
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 mutuelle base option 2:
+          applicable si: 
+            toutes ces conditions:
+              # - salarié . cotisations . prévoyances . santé
+              # - salarié . cotisations . prévoyances . santé != 0
+              - mutuelle . montant du versement
+              - mutuelle . montant du versement != 0
+              - mutuelle . contrat . option 2 != 0
+              - mutuelle . identifiant technique affiliation 2 != 0
+              - mutuelle . contrat unique = non
+          avec:
+            #78
+            code: "'31'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'"
+              # somme:
+              #   # - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: mutuelle . identifiant technique affiliation 2
+            numéro de contrat: salarié . contrat . numéro de contrat
+            #79
+            type 20:
+              avec:
+                type de composant de base assujettie: "'20'" #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: mutuelle . contrat unique
+                      alors: "''"
+                    - sinon: mutuelle . contrat . option 2
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:  
+              avec:
+                MUTUELLE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      variations:
+                        - si: mutuelle . contrat unique
+                          alors: "''"
+                        - sinon: mutuelle . contrat . option 2
+                        # - salarié . cotisations . prévoyances . santé #004
+                        # - mutuelle . contrat . surcomplémentaire . employeur
+                        # - mutuelle . contrat . surcomplémentaire . salarié
+                      arrondi: 2 décimales
+                    taux de cotisation:
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 mutuelle base option 3:
+          applicable si: 
+            toutes ces conditions:
+              # - salarié . cotisations . prévoyances . santé
+              # - salarié . cotisations . prévoyances . santé != 0
+              - mutuelle . montant du versement
+              - mutuelle . montant du versement != 0
+              - mutuelle . contrat . option 3 != 0
+              - mutuelle . identifiant technique affiliation 3 != 0
+              - mutuelle . contrat unique = non
+          avec:
+            #78
+            code: "'31'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'"
+              # somme:
+              #   # - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: mutuelle . identifiant technique affiliation 3
+            numéro de contrat: salarié . contrat . numéro de contrat
+            #79
+            type 20:
+              avec:
+                type de composant de base assujettie: "'20'" #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: mutuelle . contrat unique
+                      alors: "''"
+                    - sinon: mutuelle . contrat . option 3
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:  
+              avec:
+                MUTUELLE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      variations:
+                        - si: mutuelle . contrat unique
+                          alors: "''"
+                        - sinon: mutuelle . contrat . option 3
+                        # - salarié . cotisations . prévoyances . santé #004
+                        # - mutuelle . contrat . surcomplémentaire . employeur
+                        # - mutuelle . contrat . surcomplémentaire . salarié
+                      arrondi: 2 décimales
+                    taux de cotisation:
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 mutuelle base surcomplémentaire:
+          applicable si: 
+            toutes ces conditions:
+              # - salarié . cotisations . prévoyances . santé
+              # - salarié . cotisations . prévoyances . santé != 0
+              - mutuelle . montant du versement
+              - mutuelle . montant du versement != 0
+              - mutuelle . contrat . surcomplémentaire . socle != 0
+              - mutuelle . identifiant technique affiliation 4 != 0
+              - mutuelle . contrat unique = non
+          avec:
+            #78
+            code: "'31'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'"
+              # somme:
+              #   # - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: mutuelle . identifiant technique affiliation 4
+            numéro de contrat: salarié . contrat . numéro de contrat
+            #79
+            type 20:
+              avec:
+                type de composant de base assujettie: "'20'" #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: mutuelle . contrat unique
+                      alors: "''"
+                    - sinon: mutuelle . contrat . surcomplémentaire . socle
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:  
+              avec:
+                MUTUELLE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      variations:
+                        - si: mutuelle . contrat unique
+                          alors: "''"
+                        - sinon: mutuelle . contrat . surcomplémentaire . socle
+                      arrondi: 2 décimales
+                    taux de cotisation:
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 mutuelle base surcomplémentaire option 1:
+          applicable si: 
+            toutes ces conditions:
+              # - salarié . cotisations . prévoyances . santé
+              # - salarié . cotisations . prévoyances . santé != 0
+              - mutuelle . montant du versement
+              - mutuelle . montant du versement != 0
+              - mutuelle . contrat . surcomplémentaire . option 1 != 0
+              - mutuelle . identifiant technique affiliation 6 != 0
+              - mutuelle . contrat unique = non
+          avec:
+            #78
+            code: "'31'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'"
+              # somme:
+              #   # - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: mutuelle . identifiant technique affiliation 6
+            numéro de contrat: salarié . contrat . numéro de contrat
+            #79
+            type 20:
+              avec:
+                type de composant de base assujettie: "'20'" #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: mutuelle . contrat unique
+                      alors: "''"
+                    - sinon: mutuelle . contrat . surcomplémentaire . option 1
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:  
+              avec:
+                MUTUELLE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      variations:
+                        - si: mutuelle . contrat unique
+                          alors: "''"
+                        - sinon: mutuelle . contrat . surcomplémentaire . option 1
+                      arrondi: 2 décimales
+                    taux de cotisation:
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 mutuelle base surcomplémentaire option 2:
+          applicable si: 
+            toutes ces conditions:
+              # - salarié . cotisations . prévoyances . santé
+              # - salarié . cotisations . prévoyances . santé != 0
+              - mutuelle . montant du versement
+              - mutuelle . montant du versement != 0
+              - mutuelle . contrat . surcomplémentaire . option 2 != 0
+              - mutuelle . identifiant technique affiliation 5 != 0
+              - mutuelle . contrat unique = non
+          avec:
+            #78
+            code: "'31'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'"
+              # somme:
+              #   # - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: mutuelle . identifiant technique affiliation 5
+            numéro de contrat: salarié . contrat . numéro de contrat
+            #79
+            type 20:
+              avec:
+                type de composant de base assujettie: "'20'" #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: mutuelle . contrat unique
+                      alors: "''"
+                    - sinon: mutuelle . contrat . surcomplémentaire . option 2
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:  
+              avec:
+                MUTUELLE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      variations:
+                        - si: mutuelle . contrat unique
+                          alors: "''"
+                        - sinon: mutuelle . contrat . surcomplémentaire . option 2
+                        # - salarié . cotisations . prévoyances . santé #004
+                        # - mutuelle . contrat . surcomplémentaire . employeur
+                        # - mutuelle . contrat . surcomplémentaire . salarié
+                      arrondi: 2 décimales
+                    taux de cotisation:
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 mutuelle base surcomplémentaire option 3:
+          applicable si: 
+            toutes ces conditions:
+              # - salarié . cotisations . prévoyances . santé
+              # - salarié . cotisations . prévoyances . santé != 0
+              - mutuelle . montant du versement
+              - mutuelle . montant du versement != 0
+              - mutuelle . contrat . surcomplémentaire . option 3 != 0
+              - mutuelle . identifiant technique affiliation 7 != 0
+              - mutuelle . contrat unique = non
+          avec:
+            #78
+            code: "'31'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'"
+              # somme:
+              #   # - salarié . cotisations . bases bulletins . tranche A
+              #   # - salarié . cotisations . bases bulletins . tranche B
+              #   # - salarié . cotisations . bases bulletins . tranche C
+              #   - salarié . cotisations . prévoyances . santé . base
+            identifiant technique d'affiliation: mutuelle . identifiant technique affiliation 7
+            numéro de contrat: salarié . contrat . numéro de contrat
+            #79
+            type 20:
+              avec:
+                type de composant de base assujettie: "'20'" #001
+                montant de composant de base assujettie: 
+                  variations:
+                    - si: mutuelle . contrat unique
+                      alors: "''"
+                    - sinon: mutuelle . contrat . surcomplémentaire . option 3
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:  
+              avec:
+                MUTUELLE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      variations:
+                        - si: mutuelle . contrat unique
+                          alors: "''"
+                        - sinon: mutuelle . contrat . surcomplémentaire . option 3
+                      arrondi: 2 décimales
+                    taux de cotisation:
+
+        éléments de cotisation Prévoyance, Santé, retraite supplémentaire 31 retraite supplémentaire:
+          applicable si: retraite supplémentaire
+          avec:
+            #78
+            code: "'31'" #001
+            date de début de période de rattachement: #02
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement: #003
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: "'0.00'" #004
+            identifiant technique d'affiliation: retraite supplémentaire . identifiant technique affiliation #005
+            numéro de contrat: salarié . contrat . numéro de contrat #006
+            #79
+            brut:
+              avec: 
+                type de composant de base assujettie: "'20'" #001
+                montant de composant de base assujettie: 
+                  valeur: salarié . cotisations . retraite supplémentaire . assiette
+                  arrondi: 2 décimales
+            #81
+            cotisation individuelle:
+              avec:
+                RETRAITE SUPPLEMENTAIRE 059:
+                  avec:
+                    code de cotisation individuelle: "'059'" #001
+                    identifiant Organisme de Protection Sociale: #002
+                    montant d'assiette: #003
+                    montant de cotisation: 
+                      valeur: retraite supplémentaire . montant du versement
+                      arrondi: 2 décimales
+                    taux de cotisation: #007
+
+        base brute fiscale 10:
+          avec:
+            #78
+            code: "'10'" #001
+            date de début de période de rattachement: #02
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement: #003
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: 
+              valeur: salarié . éléments calculés du bulletin . salaires . base brute fiscale #004
+              arrondi: 2 décimales
+            identifiant technique d'affiliation: "''"
+            numéro de contrat: salarié . contrat . numéro de contrat #006
+        CSG 04:
+          avec:
+            # 78
+            code: "'04'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: 
+              somme:
+                - salarié . cotisations . CSG-CRDS . assiette de base
+                - salarié . cotisations . CSG-CRDS . assiette heures supplémentaires et complémentaires défiscalisées
+                - salarié . cotisations . CSG-CRDS . non déductible . fin de contrat . assiette
+                - salarié . activité partielle . assiette CSG et CRDS
+              arrondi: 2 décimales
+            identifiant technique d'affiliation: "''"
+            numéro de contrat: salarié . contrat . numéro de contrat
+            # 79
+            type de composant de base assujettie: "''"
+            montant de composant de base assujettie: "''"
+            # 81
+            cotisation individuelle:
+              avec:
+                CSG 072:
+                  avec:
+                    code de cotisation individuelle: "'072'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      somme: 
+                        - salarié . cotisations . CSG-CRDS . assiette de base #003
+                        - salarié . cotisations . CSG-CRDS . non déductible . fin de contrat . assiette
+                        - salarié . cotisations . CSG-CRDS . assiette heures supplémentaires et complémentaires défiscalisées
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      somme:  #004
+                        - salarié . cotisations . CSG-CRDS . CSG . déductible
+                        - salarié . cotisations . CSG-CRDS . CSG . non déductible
+                        # - salarié . cotisations . CSG-CRDS . CSG . non déductible . heures supplémentaires et complémentaires défiscalisées
+                        - salarié . cotisations . CSG-CRDS . non déductible . fin de contrat
+                        - salarié . cotisations . CSG-CRDS . assiette heures supplémentaires et complémentaires défiscalisées * (salarié . cotisations . CSG-CRDS . CSG . déductible . taux + salarié . cotisations . CSG-CRDS . CSG . non déductible . taux)
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      somme:  #007
+                        # - salarié . cotisations . CSG-CRDS . CSG . non déductible . heures supplémentaires et complémentaires défiscalisées . taux
+                        - salarié . cotisations . CSG-CRDS . CSG . déductible . taux * 100
+                        - salarié . cotisations . CSG-CRDS . CSG . non déductible . taux * 100
+                        - salarié . cotisations . CSG-CRDS . non déductible . fin de contrat . taux * 100
+                      arrondi: 2 décimales
+                CSG 079:
+                  avec:
+                    code de cotisation individuelle: "'079'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      somme: 
+                        - salarié . cotisations . CSG-CRDS . assiette de base #003
+                        - salarié . cotisations . CSG-CRDS . non déductible . fin de contrat . assiette
+                        - salarié . cotisations . CSG-CRDS . assiette heures supplémentaires et complémentaires défiscalisées
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      somme:  #004
+                        - salarié . cotisations . CSG-CRDS . CRDS
+                        - salarié . cotisations . CSG-CRDS . assiette heures supplémentaires et complémentaires défiscalisées * salarié . cotisations . CSG-CRDS . CRDS . taux
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      somme:  #007
+                        - salarié . cotisations . CSG-CRDS . CRDS . taux * 100
+                      arrondi: 2 décimales
+                CSG activité partielle 072:
+                  avec:
+                    code de cotisation individuelle: "'072'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . activité partielle . assiette CSG et CRDS
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . activité partielle . montant CSG et CRDS . CSG déductible
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      somme:
+                        - salarié . activité partielle . montant CSG et CRDS . taux . taux CSG déductible
+                        - salarié . activité partielle . montant CSG et CRDS . taux . taux CSG non déductible 
+                      arrondi: 2 décimales
+                CSG activité partielle 079:
+                  avec:
+                    code de cotisation individuelle: "'079'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . activité partielle . assiette CSG et CRDS
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . activité partielle . montant CSG et CRDS . CRDS
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . activité partielle . montant CSG et CRDS . taux . taux CRDS
+                      arrondi: 2 décimales
+        forfait social 05:
+          applicable si: salarié . cotisations . forfait social . taux 1 > 0
+          avec:
+            # 78
+            code: "'05'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: 
+              valeur: salarié . cotisations . forfait social . taux 1 . assiette #004
+              arrondi: 2 décimales
+            identifiant technique d'affiliation: "''"
+            numéro de contrat: salarié . contrat . numéro de contrat
+            # 79
+            type de composant de base assujettie: "''"
+            montant de composant de base assujettie: "''"
+            # 81
+            cotisation individuelle:
+              avec:
+                forfait social 071:
+                  avec:
+                    code de cotisation individuelle: "'071'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . forfait social . taux 1 . assiette #004
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . forfait social . taux 1 #004
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . forfait social . taux 1 . taux * 100 #007
+                      arrondi: 2 décimales
+        forfait social 14:
+          applicable si: salarié . cotisations . forfait social . taux 2 > 0
+          avec:
+            # 78
+            code: "'14'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: 
+              valeur: salarié . cotisations . forfait social . taux 2 . assiette #004
+              arrondi: 2 décimales
+            identifiant technique d'affiliation: "''"
+            numéro de contrat: salarié . contrat . numéro de contrat
+            # 79
+            type de composant de base assujettie: "''"
+            montant de composant de base assujettie: "''"
+            # 81
+            cotisation individuelle:
+              avec:
+                forfait social 071:
+                  avec:
+                    code de cotisation individuelle: "'071'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . forfait social . taux 2 . assiette #004
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . forfait social . taux 2 #004
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . forfait social . taux 2 . taux * 100 #007
+                      arrondi: 2 décimales
+        chômage 07:
+          non applicable si: 
+            une de ces conditions:
+              - salarié . contrat . stage
+              - dirigeant
+          avec:
+            # 78
+            code: "'07'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: 
+              valeur: salarié . cotisations . assiette
+              arrondi: 2 décimales
+            identifiant technique d'affiliation: "''"
+            numéro de contrat: salarié . contrat . numéro de contrat
+            # 79
+            type de composant de base assujettie: "''"
+            montant de composant de base assujettie: "''"
+            # 81
+            cotisation individuelle:
+              avec:
+                chômage 040:
+                  avec:
+                    code de cotisation individuelle: "'040'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . chômage . employeur . base
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . chômage
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      somme:
+                        - salarié . cotisations . chômage . employeur . taux * 100
+                        - salarié . cotisations . chômage . salarié . taux * 100
+                      arrondi: 2 décimales
+                AGS 048:
+                  avec:
+                    code de cotisation individuelle: "'048'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . AGS . base
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . AGS
+                      arrondi: 2 décimales
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . AGS . taux * 100
+                      arrondi: 2 décimales
+        versement mobilité 57:
+          applicable si: salarié . cotisations . versement mobilité > 0
+          avec:
+            # 78
+            code: "'57'"
+            date de début de période de rattachement:
+              titre: S21.G00.78.002 - Date de début de période de rattachement
+              par défaut: période de paie . premier jour du mois bulletin
+            date de fin de période de rattachement:
+              titre: S21.G00.78.003 - Date de fin de période de rattachement
+              par défaut: période de paie . dernier jour du mois bulletin
+            montant: 
+              valeur: salarié . cotisations . versement mobilité . base
+              arrondi: 2 décimales
+            identifiant technique d'affiliation: "''"
+            numéro de contrat: salarié . contrat . numéro de contrat
+            # 79
+            type de composant de base assujettie: "''"
+            montant de composant de base assujettie: "''"
+            # 81
+            cotisation individuelle:
+              avec:
+                mobilité 081:
+                  avec:
+                    code de cotisation individuelle: "'081'" #001
+                    identifiant Organisme de Protection Sociale: entreprise . urssaf . SIRET #002
+                    montant d'assiette: 
+                      valeur: salarié . cotisations . versement mobilité . base
+                      arrondi: 2 décimales
+                    montant de cotisation: 
+                      valeur: salarié . cotisations . versement mobilité #004
+                      arrondi: 2 décimales
+                    code insee commune:
+                      valeur: entreprise . adresse . code insee commune
+                    taux de cotisation: 
+                      valeur: salarié . cotisations . versement mobilité . taux * 100 #007
+                      arrondi: 2 décimales
