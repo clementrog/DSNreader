@@ -60,7 +60,7 @@ Acceptance criteria:
 
 - [ ] Define which URSSAF codes can be linked reliably from establishment-level CTP controls to employee-level declarations
 - [ ] Lock a first verified mapping table for explicit cases only
-- [ ] Include at least one representative example around code `8270` (`Contribution au dialogue social`) if the DSN mapping is normatively reliable
+- [ ] Include at least one representative example around code `027` (`Contribution au dialogue social`) if the DSN mapping is normatively reliable
 - [ ] Mark non-mappable or ambiguous codes as `non_rattache` / `non_calculable` instead of forcing a person-level attribution
 - [ ] Document the product rule in the spec and in tests before UI work
 

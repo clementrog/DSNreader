@@ -482,6 +482,47 @@ La sortie URSSAF doit exposer 3 niveaux :
 - bordereau cotisation due (`S21.G00.22.005`)
 - détail par CTP (`S21.G00.23`)
 
+### 13.1.1 Rattachement code CTP → cotisation individuelle (S21.G00.81.001)
+
+#### Objectif
+
+Permettre une vue "par salarié" uniquement quand la norme DSN rend le lien explicite entre un code CTP d'établissement (`S21.G00.23.001`) et un code de cotisation individuelle (`S21.G00.81.001`). Pas d'invention de mapping.
+
+#### Règle produit
+
+- Un code CTP est "rattachable" si et seulement si la norme `13.1-cotisations-dsn.publicodes` associe explicitement ce code à UN code individuel `S21.G00.81.001`, avec un OPS égal à `entreprise . urssaf . SIRET`.
+- Par défaut un code CTP est NON rattachable (default-deny).
+- Les codes non rattachables gardent leur ligne au niveau bordereau / code ; l'UI affichera `non_rattache` au lieu d'une ventilation par salarié.
+- La table de mapping verrouillée est la seule source de vérité pour le moteur (voir Slice C de la roadmap). Toute entrée ajoutée doit référencer la ligne publicodes exacte et le code individuel `S81.001` correspondant.
+
+#### Statuts de détail URSSAF (ajout)
+
+- `non_rattache` : code comptable au niveau code mais pas de chemin DSN fiable vers une allocation individuelle. Affichage prévu en Slice D.
+- `non_calculable` : (inchangé) données manquantes pour calculer la comparaison.
+
+La liste canonique des statuts autorisés est exposée par le module `dsn_extractor.urssaf_individual_mapping` via la constante `URSSAF_DETAIL_STATUSES`.
+
+#### Source de vérité code
+
+- Table : `dsn_extractor/data/urssaf_individual_mapping.tsv`
+- Chargeur + API : `dsn_extractor/urssaf_individual_mapping.py`
+  - `load_mapping() -> dict[str, UrssafIndividualMapping]`
+  - `is_urssaf_code_mappable(ctp_code) -> bool`
+  - `get_individual_code_for_ctp(ctp_code) -> str | None`
+- Tests : `tests/test_urssaf_mapping.py`
+
+Le module est volontairement découplé de `_compute_urssaf`. Slice B est un "gate" documentaire + scaffolding : la logique de reconcilation individuelle (branchement dans `_compute_urssaf`) est livrée en Slice C.
+
+#### Table de mapping verrouillée (avril 2026)
+
+| CTP | Libellé | Code S81.001 | OPS | Source normative | Statut |
+|-----|---------|--------------|-----|------------------|--------|
+| 027 | CONTRIBUTION AU DIALOGUE SOCIAL | 100 | urssaf_siret | publicodes 13.1 L235-247 | rattachable |
+
+#### Journal des décisions
+
+- **2026-04-09** — Ouverture de la gate. CTP `027` verrouillé comme premier cas rattachable sur la base de "DIALOGUE SOCIAL 100" dans `docs/13. DSN/13.1-cotisations-dsn.publicodes` lignes 235-247 (code individuel `100`, OPS `entreprise . urssaf . SIRET`, montant `salarié . cotisations . contribution au dialogue social`). Correspondance locale confirmée par `dsn_extractor/data/ctp_rate_reference.tsv:28` (CTP `027`, libellé "CONTRIBUTION AU DIALOGUE SOCIAL", taux 0.016%, effective 01/01/2015). La référence à `8270` dans `roadmap.md` était une erreur et a été corrigée vers `027` dans le même commit.
+
 ### 13.2 PAS
 
 ### Source agrégée
