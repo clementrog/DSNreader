@@ -348,6 +348,16 @@
         }
       });
     }
+    // Slice D: surface warnings attached to URSSAF per-CTP breakdowns
+    // (e.g. partial multi-assiette collapse) so they reach item-level
+    // badges, tab-level worst-status, and the trust banner.
+    if (item && Array.isArray(item.urssaf_code_breakdowns)) {
+      item.urssaf_code_breakdowns.forEach(function (breakdown) {
+        if (breakdown && Array.isArray(breakdown.warnings) && breakdown.warnings.length > 0) {
+          warnings = warnings.concat(breakdown.warnings);
+        }
+      });
+    }
     return warnings;
   }
 
@@ -955,9 +965,15 @@
     var mismatchCount = payload.mismatch_count != null
       ? payload.mismatch_count
       : items.filter(function (item) { return item.status === "ecart"; }).length;
-    var warningCount = payload.warning_count != null
-      ? payload.warning_count
-      : countComparisonWarnings(items);
+
+    // Slice D: compute the warning count client-side over the full set of
+    // warning sources (item + detail + urssaf_code_breakdowns). The backend
+    // payload.warning_count is kept as a lower-bound fallback so stale
+    // servers still produce a sensible number, but the client-side count
+    // takes precedence whenever it sees more warnings — which is always the
+    // case now that breakdown.warnings exists.
+    var clientWarningCount = countComparisonWarnings(items);
+    var warningCount = Math.max(payload.warning_count || 0, clientWarningCount);
 
     renderTrustBanner(okCount, mismatchCount, warningCount);
     renderContributionTabBar(items);
@@ -1291,16 +1307,37 @@
   // persist through state.expandedUrssafCtps until scope / establishment
   // changes.
 
-  function _isCtpEcart(breakdown, assietteDetails) {
-    // Declared-side écart: any assiette row with rate_mismatch or amount_mismatch.
+  function _ctpHasIssue(breakdown, assietteDetails) {
+    // Returns true when a CTP row needs to be surfaced under the default
+    // "Afficher uniquement les écarts" filter — i.e. whenever the row carries
+    // ANY kind of issue the payroll user needs to see. Broader than a strict
+    // declared-vs-individual écart so that explanation-carrying rows
+    // (non_rattache / manquant_individuel / partial-collapse warnings) are
+    // never silently hidden by the default filter.
+    //
+    // Criteria (any one is sufficient):
+    //   1. Declared-side écart: any assiette row with rate_mismatch or
+    //      amount_mismatch.
+    //   2. Individual-side écart: non-zero breakdown.delta.
+    //   3. Mapping status is anything other than "rattachable" — so
+    //      non_rattache and manquant_individuel rows are always visible and
+    //      the UI can explicitly explain why the drill-down is unavailable.
+    //   4. Breakdown carries at least one warning (e.g. the Slice C partial
+    //      multi-assiette collapse warning) — the user must see the row to
+    //      read the warning.
     for (var i = 0; i < assietteDetails.length; i++) {
       var d = assietteDetails[i];
       if (d.rate_mismatch || d.amount_mismatch) return true;
     }
-    // Individual-side écart: non-zero delta between declared and individual sums.
     if (breakdown && breakdown.delta != null) {
       var dv = parseFloat(breakdown.delta);
       if (!isNaN(dv) && dv !== 0) return true;
+    }
+    if (breakdown && breakdown.mapping_status && breakdown.mapping_status !== "rattachable") {
+      return true;
+    }
+    if (breakdown && Array.isArray(breakdown.warnings) && breakdown.warnings.length > 0) {
+      return true;
     }
     return false;
   }
@@ -1309,12 +1346,12 @@
     return getItemStableKey(item) + ":ctp:" + (ctpCode || "");
   }
 
-  function _isUrssafCtpExpanded(item, ctpCode, isEcart) {
+  function _isUrssafCtpExpanded(item, ctpCode, hasIssueDefault) {
     var key = _urssafCtpExpandKey(item, ctpCode);
     if (state.expandedUrssafCtps.hasOwnProperty(key)) {
       return state.expandedUrssafCtps[key];
     }
-    return !!isEcart;
+    return !!hasIssueDefault;
   }
 
   function _renderUrssafAssietteSubRows(assietteDetails) {
@@ -1519,10 +1556,10 @@
         });
 
     var totalCtps = ctpRows.length;
-    var ecartFlags = ctpRows.map(function (row) {
-      return _isCtpEcart(row.breakdown, row.assietteDetails);
+    var issueFlags = ctpRows.map(function (row) {
+      return _ctpHasIssue(row.breakdown, row.assietteDetails);
     });
-    var ecartCount = ecartFlags.filter(function (x) { return x; }).length;
+    var issueCount = issueFlags.filter(function (x) { return x; }).length;
     var filterActive = state.contribFilterEcartsOnly;
 
     var toolbar = '<div class="contrib-filter-toolbar">'
@@ -1532,12 +1569,12 @@
       + (filterActive ? ' checked' : '') + '>'
       + '<span class="contrib-filter-toggle__label">Afficher uniquement les \u00e9carts</span>'
       + '</label>'
-      + '<span class="contrib-filter-count">' + ecartCount + ' \u00e9cart(s) / ' + totalCtps + ' CTP</span>'
+      + '<span class="contrib-filter-count">' + issueCount + ' \u00e9cart(s) / ' + totalCtps + ' CTP</span>'
       + '</div>';
 
     // Apply filter.
     var visibleRows = ctpRows.filter(function (_, idx) {
-      return !filterActive || ecartFlags[idx];
+      return !filterActive || issueFlags[idx];
     });
 
     var emptyMsg = filterActive && totalCtps > 0
@@ -1562,8 +1599,8 @@
     var bodyHtml = visibleRows.map(function (row) {
       var b = row.breakdown;
       var assietteDetails = row.assietteDetails;
-      var isEcart = _isCtpEcart(b, assietteDetails);
-      var expanded = _isUrssafCtpExpanded(item, row.ctp_code, isEcart);
+      var hasIssue = _ctpHasIssue(b, assietteDetails);
+      var expanded = _isUrssafCtpExpanded(item, row.ctp_code, hasIssue);
 
       var mappedCode = (assietteDetails[0] && (assietteDetails[0].mapped_code || assietteDetails[0].ctp_code))
         || row.ctp_code
@@ -1590,7 +1627,7 @@
 
       var rowCls = 'urssaf-ctp-row'
         + (expanded ? ' urssaf-ctp-row--expanded' : '')
-        + (isEcart ? ' urssaf-ctp-row--ecart' : '');
+        + (hasIssue ? ' urssaf-ctp-row--ecart' : '');
 
       var parentRow = '<tr class="' + rowCls + '" data-action="toggle-urssaf-ctp" data-ctp-code="' + escapeHtml(row.ctp_code) + '">'
         + '<td class="urssaf-ctp-table__chevron-col"><span class="urssaf-ctp-chevron">\u25b6</span></td>'
@@ -1634,12 +1671,13 @@
     }).join("");
 
     // Count warnings on filtered-out rows so the user knows they exist.
+    // Note: rows carrying breakdown.warnings are already visible (see
+    // _ctpHasIssue rule 4), so we only need to count assiette-level warnings
+    // that slipped past rate_mismatch / amount_mismatch on otherwise-OK CTPs.
     var hiddenWarningCount = 0;
     if (filterActive) {
       ctpRows.forEach(function (row, idx) {
-        if (ecartFlags[idx]) return;
-        var b = row.breakdown;
-        if (b && Array.isArray(b.warnings)) hiddenWarningCount += b.warnings.length;
+        if (issueFlags[idx]) return;
         row.assietteDetails.forEach(function (d) {
           if (d.warnings && d.warnings.length > 0 && !d.rate_mismatch && !d.amount_mismatch) {
             hiddenWarningCount += d.warnings.length;
