@@ -416,7 +416,7 @@ class TestFeedbackAPI:
                     "filename": "/tmp/private-folder/client-a.dsn",
                     "active_page": "controle",
                     "scope": "global",
-                    "active_contribution_family": "urssaf",
+                    "active_contribution_tab": "complementaires",
                     "browser": "Mozilla/5.0",
                     "language": "fr-FR",
                     "theme": "light",
@@ -440,8 +440,45 @@ class TestFeedbackAPI:
         context = captured["context"]
         assert context["filename"] == "client-a.dsn"
         assert context["comparison_mismatch_count"] == 3
+        # Slice A telemetry field must survive sanitization.
+        assert context["active_contribution_tab"] == "complementaires"
+        # Legacy field is still whitelisted but absent from this payload.
+        assert context["active_contribution_family"] is None
         assert "raw_dsn" not in context
         assert "full_payload" not in context
+
+    def test_feedback_accepts_legacy_active_contribution_family(self, monkeypatch):
+        """Older clients that still send active_contribution_family must not
+        have their field silently dropped. Backward-compat check for the
+        Slice A telemetry rename."""
+        captured: dict[str, object] = {}
+
+        def fake_send_feedback_email(**kwargs):
+            captured.update(kwargs)
+            return {"id": "email_legacy"}
+
+        monkeypatch.setattr(server_app, "_send_feedback_email", fake_send_feedback_email)
+
+        r = client.post(
+            "/api/feedback",
+            json={
+                "category": "issue",
+                "message": "Legacy client report.",
+                "email": "legacy@example.com",
+                "phone": "0601020304",
+                "consent": True,
+                "context": {
+                    "phase": "results",
+                    "active_contribution_family": "urssaf",
+                },
+            },
+        )
+
+        assert r.status_code == 200
+        context = captured["context"]
+        assert context["active_contribution_family"] == "urssaf"
+        # New tab field absent but schema slot still present as None.
+        assert context["active_contribution_tab"] is None
 
     def test_feedback_returns_clean_error_on_send_failure(self, monkeypatch):
         def fake_send_feedback_email(**kwargs):

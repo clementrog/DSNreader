@@ -91,6 +91,11 @@ def _sanitize_feedback_context(context: Any) -> dict[str, Any]:
         "filename": filename,
         "active_page": _safe_str(context.get("active_page"), limit=64),
         "scope": _safe_str(context.get("scope"), limit=64),
+        # Current frontend sends active_contribution_tab (Slice A).
+        # active_contribution_family is kept for backward compatibility with
+        # older clients; the two fields carry different meanings (tab id vs
+        # backend family) so they must stay as separate keys.
+        "active_contribution_tab": _safe_str(context.get("active_contribution_tab"), limit=64),
         "active_contribution_family": _safe_str(context.get("active_contribution_family"), limit=64),
         "browser": _safe_str(context.get("browser"), limit=400),
         "language": _safe_str(context.get("language"), limit=32),
