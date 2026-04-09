@@ -1,5 +1,131 @@
 # DSN Reader — Roadmap
 
+## Active product roadmap — April 2026
+
+Cross-references:
+
+- Detailed contribution spec: [`spec-cotisations-comparaison.md`](spec-cotisations-comparaison.md)
+- Shared execution list: [`../todo.md`](../todo.md)
+
+### Product decisions locked
+
+- [x] Merge `Mutuelle` and `Prévoyance` into a single tab named `Organismes complémentaires`
+- [x] New fixed tab order: `URSSAF`, `PAS`, `Retraite`, `Organismes complémentaires`
+- [x] In `URSSAF`, target a 4-level control chain: `Agrégé` vs `Bordereau` vs `Code` vs `Salariés`
+- [x] In the URSSAF employee view, display employee names in clear text
+
+### Why this matters
+
+- Fewer tabs means a simpler mental model for payroll users.
+- Moving `Retraite` before complementary organisms matches the priority order of the control workflow.
+- The URSSAF view becomes actionable: not just "there is a gap", but "which code is off" and "which employees are behind that amount".
+
+### CTO recommendation — constraint to respect before build
+
+- At establishment level, URSSAF is controlled through CTP / bordereau blocks (`S21.G00.22` / `S21.G00.23`).
+- At employee level, DSN uses individual contribution blocks (`S21.G00.78` / `S21.G00.81`).
+- These two levels do not always expose the same business code one-to-one.
+- Recommendation: only show employee attribution when the DSN link is explicit and testable. If the norm does not allow a reliable link for a given code, the product must say "non rattaché" instead of inventing a match.
+
+Why this is important:
+
+- If we guess the mapping, the UI may point to the wrong employee even though the math looks precise.
+- If we keep the rule strict, users can trust the cases we do show.
+
+### DSNreader roadmap — contribution comparison UX
+
+#### Slice A — Navigation simplification
+
+**Files:** `server/static/app.js`, `server/static/index.html`, `server/static/style.css`
+
+- [ ] Replace the 5 current fixed family tabs with 4 fixed tabs:
+  - `URSSAF`
+  - `PAS`
+  - `Retraite`
+  - `Organismes complémentaires`
+- [ ] Merge `prevoyance` and `mutuelle` only at presentation level
+- [ ] Keep backend family typing unchanged (`prevoyance` and `mutuelle` stay distinct in payloads and reconciliation logic)
+- [ ] Render both complementary families inside the same `Organismes complémentaires` tab without losing organism / contrat / adhésion context
+- [ ] Apply the same order in both global and establishment scopes
+
+Acceptance criteria:
+
+- [ ] No organism disappears from the current result set after the tab merge
+- [ ] The new order is stable everywhere in the UI
+- [ ] Existing comparison calculations remain unchanged for PAS / URSSAF / Retraite / complementary items
+
+#### Slice B — URSSAF individual mapping discovery gate
+
+**Files:** `spec-cotisations-comparaison.md`, `dsn_extractor/contributions.py`, `tests/test_contributions.py`
+
+- [ ] Define which URSSAF codes can be linked reliably from establishment-level CTP controls to employee-level declarations
+- [ ] Lock a first verified mapping table for explicit cases only
+- [ ] Include at least one representative example around code `8270` (`Contribution au dialogue social`) if the DSN mapping is normatively reliable
+- [ ] Mark non-mappable or ambiguous codes as `non_rattache` / `non_calculable` instead of forcing a person-level attribution
+- [ ] Document the product rule in the spec and in tests before UI work
+
+Acceptance criteria:
+
+- [ ] Every employee-level URSSAF attribution shown in UI is backed by an explicit mapping rule
+- [ ] Ambiguous cases remain visible as warnings, not hidden and not guessed
+
+#### Slice C — URSSAF data model and reconciliation engine
+
+**Files:** `dsn_extractor/models.py`, `dsn_extractor/contributions.py`
+
+- [ ] Extend the URSSAF detail payload to carry an employee-level subtotal for each code when mapping is reliable
+- [ ] Compute, for each eligible URSSAF code, the comparison between:
+  - CTP / code amount at establishment level
+  - summed individual amount at employee level
+- [ ] Add a per-code delta between establishment declaration and employee subtotal
+- [ ] Preserve the existing controls:
+  - `Agrégé vs Bordereau`
+  - `Bordereau vs somme des codes`
+- [ ] Add employee drill-down rows with:
+  - employee name
+  - declaration code(s) used
+  - amount
+  - DSN line references
+- [ ] Emit explicit warnings when a code has individual data but no reliable mapping
+
+Acceptance criteria:
+
+- [ ] A URSSAF gap can be read at 4 levels: aggregate, bordereau, code, employee
+- [ ] The engine never fabricates a code-to-employee match
+
+#### Slice D — URSSAF UI drill-down
+
+**Files:** `server/static/app.js`, `server/static/index.html`, `server/static/style.css`
+
+- [ ] In the URSSAF panel, keep the current high-level summary cards / badges
+- [ ] In the detail table, add the employee-level subtotal and per-code delta
+- [ ] Make each URSSAF code row expandable to reveal the employee list for that code
+- [ ] Keep the default filter `Afficher uniquement les écarts`
+- [ ] Show employee names in clear text in the expanded URSSAF code view
+- [ ] Distinguish clearly between:
+  - no employee detail found
+  - employee detail found but not reliably allocable
+  - employee detail found and matched
+
+Acceptance criteria:
+
+- [ ] A payroll user can identify the offending URSSAF code without leaving the screen
+- [ ] If the code is allocable, the user can see which employees explain the amount
+- [ ] If the code is not allocable, the UI explains that limitation explicitly
+
+#### Slice E — Test and rollout safety
+
+**Files:** `tests/test_contributions.py`, `tests/test_server.py`, `tests/fixtures/`
+
+- [ ] Add fixtures for:
+  - clean URSSAF equality
+  - code-level mismatch
+  - employee-level mismatch on a mapped code
+  - ambiguous code-to-employee mapping
+  - regularization case
+- [ ] Add regression tests for the merged complementary tab and the new tab order
+- [ ] Verify that `global` and `per establishment` views stay consistent after the UI change
+
 ---
 
 # Phase 1 — MVP (deterministic extractor + CLI)
