@@ -139,6 +139,9 @@
     activePage: "controle",
     contribFilterEcartsOnly: true,
     expandedContribItems: {},
+    // Slice D: per-CTP expansion keyed by "{itemStableKey}:{ctp_code}".
+    // Default (no entry) means "follow the écart auto-expand rule".
+    expandedUrssafCtps: {},
     hasUploadAttempted: false,
     lastUploadFilename: null,
     lastUploadFileBase64: null,
@@ -1270,17 +1273,257 @@
       + '</div>';
   }
 
+  // ── URSSAF details rendering (Slice D) ──────────────────────
+  //
+  // Slice D restructures the URSSAF detail view around CTP codes so the
+  // 4 levels of the control chain (Agrégé → Bordereau → Code → Salariés)
+  // are reachable without leaving the screen. The top-level table shows
+  // one row per CTP (from item.urssaf_code_breakdowns). Clicking a row
+  // reveals a sub-panel with:
+  //   - the existing per-assiette detail rows scoped to that CTP
+  //     (so rate / computed-amount controls stay visible)
+  //   - an employee sub-table for "rattachable" CTPs, or an explanation
+  //     for "non_rattache" / "manquant_individuel" CTPs.
+  //
+  // Default expansion: CTPs that carry an écart (declared-side mismatch
+  // or non-zero declared/individuel delta) auto-expand on first render so
+  // users see the offending rows without extra clicks. User overrides
+  // persist through state.expandedUrssafCtps until scope / establishment
+  // changes.
+
+  function _isCtpEcart(breakdown, assietteDetails) {
+    // Declared-side écart: any assiette row with rate_mismatch or amount_mismatch.
+    for (var i = 0; i < assietteDetails.length; i++) {
+      var d = assietteDetails[i];
+      if (d.rate_mismatch || d.amount_mismatch) return true;
+    }
+    // Individual-side écart: non-zero delta between declared and individual sums.
+    if (breakdown && breakdown.delta != null) {
+      var dv = parseFloat(breakdown.delta);
+      if (!isNaN(dv) && dv !== 0) return true;
+    }
+    return false;
+  }
+
+  function _urssafCtpExpandKey(item, ctpCode) {
+    return getItemStableKey(item) + ":ctp:" + (ctpCode || "");
+  }
+
+  function _isUrssafCtpExpanded(item, ctpCode, isEcart) {
+    var key = _urssafCtpExpandKey(item, ctpCode);
+    if (state.expandedUrssafCtps.hasOwnProperty(key)) {
+      return state.expandedUrssafCtps[key];
+    }
+    return !!isEcart;
+  }
+
+  function _renderUrssafAssietteSubRows(assietteDetails) {
+    // Per-assiette sub-table (the previous 6-col format, scoped to one CTP,
+    // minus the Code / Libellé columns which are redundant at this level).
+    if (!assietteDetails || assietteDetails.length === 0) {
+      return '<div class="urssaf-ctp-empty-message">Aucune variante d\u2019assiette pour ce code.</div>';
+    }
+    var headerHtml = '<thead><tr>'
+      + '<th>Assiette</th><th>Taux</th><th>Montant</th><th>Delta</th>'
+      + '</tr></thead>';
+    var rowsHtml = assietteDetails.map(function (detail) {
+      var rowCls = 'detail-row detail-row--' + (detail.status || 'ok');
+
+      var assietteLabel = detail.assiette_label || detail.assiette_qualifier || '';
+      var assietteTitle = assietteLabel ? ' title="' + escapeHtml(assietteLabel) + '"' : '';
+      var assietteHtml = escapeHtml(formatAmount(detail.base_amount))
+        + (assietteLabel ? '<span class="cell-sublabel">' + escapeHtml(assietteLabel) + '</span>' : '');
+
+      var tauxHtml, tauxTitle = '';
+      if (detail.rate_mismatch && detail.rate != null && detail.expected_rate != null) {
+        tauxHtml = '<span class="cell-mismatch">'
+          + escapeHtml(formatRate(detail.rate))
+          + ' <span class="cell-arrow">\u2192</span> '
+          + escapeHtml(formatRate(detail.expected_rate))
+          + '</span>';
+        tauxTitle = ' title="Taux DSN\u00a0: ' + escapeHtml(formatRate(detail.rate))
+          + ' | Taux r\u00e9f\u00e9rence\u00a0: ' + escapeHtml(formatRate(detail.expected_rate)) + '"';
+      } else {
+        tauxHtml = escapeHtml(formatRate(detail.rate));
+      }
+
+      var montantHtml, montantTitle = '';
+      if (detail.amount_mismatch && detail.declared_amount != null && detail.computed_amount != null) {
+        montantHtml = '<span class="cell-mismatch">'
+          + escapeHtml(formatAmount(detail.declared_amount))
+          + ' <span class="cell-arrow">\u2192</span> '
+          + escapeHtml(formatAmount(detail.computed_amount))
+          + '</span>';
+        montantTitle = ' title="Montant DSN\u00a0: ' + escapeHtml(formatAmount(detail.declared_amount))
+          + ' | Montant recalcul\u00e9\u00a0: ' + escapeHtml(formatAmount(detail.computed_amount)) + '"';
+      } else {
+        montantHtml = escapeHtml(formatAmount(detail.declared_amount));
+      }
+
+      var deltaHtml = 'NC';
+      if (detail.delta != null) {
+        var dv = parseFloat(detail.delta);
+        if (!isNaN(dv) && dv !== 0) {
+          deltaHtml = '<span class="cell-delta">' + escapeHtml(formatAmount(detail.delta)) + '</span>';
+        }
+      }
+
+      var rowHtml = '<tr class="' + rowCls + '">'
+        + '<td class="mono"' + assietteTitle + '>' + assietteHtml + '</td>'
+        + '<td class="mono"' + tauxTitle + '>' + tauxHtml + '</td>'
+        + '<td class="mono"' + montantTitle + '>' + montantHtml + '</td>'
+        + '<td class="mono">' + deltaHtml + '</td>'
+        + '</tr>';
+
+      if (detail.warnings && detail.warnings.length > 0) {
+        rowHtml += '<tr class="detail-warning-row">'
+          + '<td colspan="4">'
+          + detail.warnings.map(function (w) {
+              return '<div class="inline-warning">'
+                + '<span class="inline-warning__icon">&#9888;</span>'
+                + '<span class="inline-warning__text">' + escapeHtml(String(w)) + '</span>'
+                + '</div>';
+            }).join("")
+          + '</td></tr>';
+      }
+
+      return rowHtml;
+    }).join("");
+
+    return '<div class="urssaf-sub-section">'
+      + '<h5 class="urssaf-sub-section__title">D\u00e9tail par assiette</h5>'
+      + '<table class="data-table urssaf-sub-table">'
+      + headerHtml
+      + '<tbody>' + rowsHtml + '</tbody>'
+      + '</table>'
+      + '</div>';
+  }
+
+  function _renderUrssafEmployeesSubSection(breakdown) {
+    // Show salariés for rattachable CTPs; explain the reason otherwise.
+    var status = breakdown.mapping_status || 'non_rattache';
+
+    if (status === 'non_rattache') {
+      return '<div class="urssaf-sub-section">'
+        + '<h5 class="urssaf-sub-section__title">Salari\u00e9s</h5>'
+        + '<div class="urssaf-ctp-empty-message urssaf-ctp-empty-message--non-rattache">'
+        + '<strong>CTP non rattach\u00e9.</strong> Aucun lien fiable n\u2019est d\u00e9fini '
+        + 'entre ce code et un code de cotisation individuelle (S21.G00.81.001). '
+        + 'La ventilation par salari\u00e9 n\u2019est donc pas affich\u00e9e pour respecter '
+        + 'la r\u00e8gle de rattachement strict.'
+        + '</div>'
+        + '</div>';
+    }
+
+    if (status === 'manquant_individuel') {
+      return '<div class="urssaf-sub-section">'
+        + '<h5 class="urssaf-sub-section__title">Salari\u00e9s</h5>'
+        + '<div class="urssaf-ctp-empty-message urssaf-ctp-empty-message--missing">'
+        + '<strong>D\u00e9tail individuel non trouv\u00e9.</strong> Ce CTP est rattachable '
+        + '(code individuel attendu\u00a0: '
+        + escapeHtml(breakdown.individual_code || '?')
+        + ') mais aucune ligne <code>S21.G00.81</code> correspondante n\u2019a \u00e9t\u00e9 '
+        + 'trouv\u00e9e dans les salari\u00e9s de cet \u00e9tablissement.'
+        + '</div>'
+        + '</div>';
+    }
+
+    // rattachable
+    var employees = Array.isArray(breakdown.employees) ? breakdown.employees : [];
+    if (employees.length === 0) {
+      // Shouldn't happen when mapping_status === 'rattachable' (backend
+      // guarantees at least one employee), but stay defensive.
+      return '';
+    }
+
+    var rowsHtml = employees.map(function (emp) {
+      var lines = Array.isArray(emp.record_lines) ? emp.record_lines : [];
+      var linesLabel = lines.length === 0
+        ? NOT_AVAILABLE
+        : lines.slice(0, 5).map(function (l) { return 'L' + l; }).join(', ')
+          + (lines.length > 5 ? ' \u2026' : '');
+      var linesTitle = lines.length > 0
+        ? ' title="Lignes DSN\u00a0: ' + escapeHtml(lines.map(function (l) { return 'L' + l; }).join(', ')) + '"'
+        : '';
+      return '<tr>'
+        + '<td>' + escapeHtml(emp.employee_name || NOT_AVAILABLE) + '</td>'
+        + '<td class="mono">' + escapeHtml(emp.individual_code || NOT_AVAILABLE) + '</td>'
+        + '<td class="mono">' + escapeHtml(formatAmount(emp.amount)) + '</td>'
+        + '<td class="mono"' + linesTitle + '>' + linesLabel + '</td>'
+        + '</tr>';
+    }).join("");
+
+    return '<div class="urssaf-sub-section">'
+      + '<h5 class="urssaf-sub-section__title">Salari\u00e9s (' + employees.length + ')</h5>'
+      + '<table class="data-table urssaf-sub-table urssaf-employees-table">'
+      + '<thead><tr>'
+      + '<th>Salari\u00e9</th><th>Code S81</th><th>Montant</th><th>Lignes DSN</th>'
+      + '</tr></thead>'
+      + '<tbody>' + rowsHtml + '</tbody>'
+      + '</table>'
+      + '</div>';
+  }
+
+  function _renderUrssafCtpRattachementBadge(breakdown) {
+    var status = breakdown.mapping_status || 'non_rattache';
+    if (status === 'rattachable') {
+      var hasDelta = false;
+      if (breakdown.delta != null) {
+        var dv = parseFloat(breakdown.delta);
+        hasDelta = !isNaN(dv) && dv !== 0;
+      }
+      if (hasDelta) {
+        return '<span class="status-badge status-badge--ecart">\u00c9cart rattachement</span>';
+      }
+      return '<span class="status-badge status-badge--ok">Rattach\u00e9</span>';
+    }
+    if (status === 'manquant_individuel') {
+      return '<span class="status-badge status-badge--manquant_individuel">Manquant individuel</span>';
+    }
+    return '<span class="status-badge status-badge--non_rattache">Non rattach\u00e9</span>';
+  }
+
   function renderUrssafDetailsTable(item) {
     var details = Array.isArray(item.details) ? item.details : [];
-    var totalRows = details.length;
-    var ecartRows = details.filter(function (d) {
-      return !!d.rate_mismatch || !!d.amount_mismatch;
-    }).length;
-    var filterActive = state.contribFilterEcartsOnly;
+    var breakdowns = Array.isArray(item.urssaf_code_breakdowns) ? item.urssaf_code_breakdowns : [];
 
-    var visibleDetails = filterActive
-      ? details.filter(function (d) { return !!d.rate_mismatch || !!d.amount_mismatch; })
-      : details;
+    // Group assiette details by ctp_code for sub-section rendering.
+    var detailsByCtp = {};
+    details.forEach(function (d) {
+      var ctp = d.ctp_code || '';
+      if (!ctp) return;
+      if (!detailsByCtp[ctp]) detailsByCtp[ctp] = [];
+      detailsByCtp[ctp].push(d);
+    });
+
+    // Build one CTP-level row per entry in urssaf_code_breakdowns. Fall back
+    // to the assiette-grouped details if the backend didn't emit any
+    // breakdowns (defensive — Slice C always populates it for URSSAF items
+    // that have S23 children).
+    var ctpRows = breakdowns.length > 0
+      ? breakdowns.map(function (b) {
+          return {
+            ctp_code: b.ctp_code,
+            label: b.ctp_label,
+            breakdown: b,
+            assietteDetails: detailsByCtp[b.ctp_code] || [],
+          };
+        })
+      : Object.keys(detailsByCtp).map(function (ctp) {
+          return {
+            ctp_code: ctp,
+            label: (detailsByCtp[ctp][0] && detailsByCtp[ctp][0].label) || null,
+            breakdown: null,
+            assietteDetails: detailsByCtp[ctp],
+          };
+        });
+
+    var totalCtps = ctpRows.length;
+    var ecartFlags = ctpRows.map(function (row) {
+      return _isCtpEcart(row.breakdown, row.assietteDetails);
+    });
+    var ecartCount = ecartFlags.filter(function (x) { return x; }).length;
+    var filterActive = state.contribFilterEcartsOnly;
 
     var toolbar = '<div class="contrib-filter-toolbar">'
       + '<label class="contrib-filter-toggle">'
@@ -1289,93 +1532,119 @@
       + (filterActive ? ' checked' : '') + '>'
       + '<span class="contrib-filter-toggle__label">Afficher uniquement les \u00e9carts</span>'
       + '</label>'
-      + '<span class="contrib-filter-count">' + ecartRows + ' \u00e9cart(s) / ' + totalRows + ' lignes</span>'
+      + '<span class="contrib-filter-count">' + ecartCount + ' \u00e9cart(s) / ' + totalCtps + ' CTP</span>'
       + '</div>';
 
-    var emptyMsg = filterActive && totalRows > 0
-      ? 'Aucun \u00e9cart d\u00e9tect\u00e9 sur ' + totalRows + ' lignes. D\u00e9cochez le filtre pour tout afficher.'
+    // Apply filter.
+    var visibleRows = ctpRows.filter(function (_, idx) {
+      return !filterActive || ecartFlags[idx];
+    });
+
+    var emptyMsg = filterActive && totalCtps > 0
+      ? 'Aucun \u00e9cart d\u00e9tect\u00e9 sur ' + totalCtps + ' CTP. D\u00e9cochez le filtre pour tout afficher.'
       : 'Aucun d\u00e9tail disponible';
 
-    var body = visibleDetails.length === 0
-      ? '<tr><td colspan="6" class="data-table__empty">' + emptyMsg + '</td></tr>'
-      : visibleDetails.map(function (detail) {
-          var rowCls = 'detail-row detail-row--' + (detail.status || 'ok');
+    if (visibleRows.length === 0) {
+      return toolbar
+        + '<div class="contrib-details-wrap">'
+        + '<table class="data-table urssaf-ctp-table" style="margin-top: var(--sp-4);">'
+        + '<thead><tr>'
+        + '<th class="urssaf-ctp-table__chevron-col"></th>'
+        + '<th>Code</th><th>Libell\u00e9</th>'
+        + '<th>D\u00e9clar\u00e9</th><th>Individuel</th><th>Delta code</th>'
+        + '<th>Rattachement</th>'
+        + '</tr></thead>'
+        + '<tbody><tr><td colspan="7" class="data-table__empty">' + emptyMsg + '</td></tr></tbody>'
+        + '</table>'
+        + '</div>';
+    }
 
-          // Assiette: amount + type as sublabel
-          var assietteLabel = detail.assiette_label || detail.assiette_qualifier || '';
-          var assietteTitle = assietteLabel ? ' title="' + escapeHtml(assietteLabel) + '"' : '';
-          var assietteHtml = escapeHtml(formatAmount(detail.base_amount))
-            + (assietteLabel ? '<span class="cell-sublabel">' + escapeHtml(assietteLabel) + '</span>' : '');
+    var bodyHtml = visibleRows.map(function (row) {
+      var b = row.breakdown;
+      var assietteDetails = row.assietteDetails;
+      var isEcart = _isCtpEcart(b, assietteDetails);
+      var expanded = _isUrssafCtpExpanded(item, row.ctp_code, isEcart);
 
-          // Taux: merged (declared → expected if mismatch)
-          var tauxHtml, tauxTitle = '';
-          if (detail.rate_mismatch && detail.rate != null && detail.expected_rate != null) {
-            tauxHtml = '<span class="cell-mismatch">'
-              + escapeHtml(formatRate(detail.rate))
-              + ' <span class="cell-arrow">\u2192</span> '
-              + escapeHtml(formatRate(detail.expected_rate))
-              + '</span>';
-            tauxTitle = ' title="Taux DSN\u00a0: ' + escapeHtml(formatRate(detail.rate))
-              + ' | Taux r\u00e9f\u00e9rence\u00a0: ' + escapeHtml(formatRate(detail.expected_rate)) + '"';
-          } else {
-            tauxHtml = escapeHtml(formatRate(detail.rate));
-          }
+      var mappedCode = (assietteDetails[0] && (assietteDetails[0].mapped_code || assietteDetails[0].ctp_code))
+        || row.ctp_code
+        || NOT_AVAILABLE;
 
-          // Montant: merged (declared → computed if mismatch)
-          var montantHtml, montantTitle = '';
-          if (detail.amount_mismatch && detail.declared_amount != null && detail.computed_amount != null) {
-            montantHtml = '<span class="cell-mismatch">'
-              + escapeHtml(formatAmount(detail.declared_amount))
-              + ' <span class="cell-arrow">\u2192</span> '
-              + escapeHtml(formatAmount(detail.computed_amount))
-              + '</span>';
-            montantTitle = ' title="Montant DSN\u00a0: ' + escapeHtml(formatAmount(detail.declared_amount))
-              + ' | Montant recalcul\u00e9\u00a0: ' + escapeHtml(formatAmount(detail.computed_amount)) + '"';
-          } else {
-            montantHtml = escapeHtml(formatAmount(detail.declared_amount));
-          }
+      // Per-CTP declared / individual / delta come from the breakdown when
+      // present. The backend already hides the declared side when the
+      // multi-assiette collapse is partial.
+      var declaredCell = b != null ? escapeHtml(formatAmount(b.declared_amount)) : escapeHtml(formatAmount(null));
+      var individualCell = b != null ? escapeHtml(formatAmount(b.individual_amount)) : escapeHtml(formatAmount(null));
+      var deltaCell = 'NC';
+      if (b != null && b.delta != null) {
+        var dv = parseFloat(b.delta);
+        if (!isNaN(dv) && dv !== 0) {
+          deltaCell = '<span class="cell-delta">' + escapeHtml(formatAmount(b.delta)) + '</span>';
+        } else if (!isNaN(dv)) {
+          deltaCell = escapeHtml(formatAmount(b.delta));
+        }
+      }
 
-          // Delta column
-          var deltaHtml = 'NC';
-          if (detail.delta != null) {
-            var dv = parseFloat(detail.delta);
-            if (!isNaN(dv) && dv !== 0) {
-              deltaHtml = '<span class="cell-delta">' + escapeHtml(formatAmount(detail.delta)) + '</span>';
-            }
-          }
+      var rattachementBadge = b != null
+        ? _renderUrssafCtpRattachementBadge(b)
+        : '<span class="status-badge status-badge--non_rattache">Non rattach\u00e9</span>';
 
-          var rowHtml = '<tr class="' + rowCls + '">'
-            + '<td class="mono">' + escapeHtml(detail.mapped_code || detail.ctp_code || NOT_AVAILABLE) + '</td>'
-            + '<td>' + escapeHtml(detail.label || NOT_AVAILABLE) + '</td>'
-            + '<td class="mono"' + assietteTitle + '>' + assietteHtml + '</td>'
-            + '<td class="mono"' + tauxTitle + '>' + tauxHtml + '</td>'
-            + '<td class="mono"' + montantTitle + '>' + montantHtml + '</td>'
-            + '<td class="mono">' + deltaHtml + '</td>'
-            + '</tr>';
+      var rowCls = 'urssaf-ctp-row'
+        + (expanded ? ' urssaf-ctp-row--expanded' : '')
+        + (isEcart ? ' urssaf-ctp-row--ecart' : '');
 
-          // Inline detail-level warnings
-          if (detail.warnings && detail.warnings.length > 0) {
-            rowHtml += '<tr class="detail-warning-row">'
-              + '<td colspan="6">'
-              + detail.warnings.map(function (w) {
-                  return '<div class="inline-warning">'
-                    + '<span class="inline-warning__icon">&#9888;</span>'
-                    + '<span class="inline-warning__text">' + escapeHtml(String(w)) + '</span>'
-                    + '</div>';
-                }).join("")
-              + '</td></tr>';
-          }
+      var parentRow = '<tr class="' + rowCls + '" data-action="toggle-urssaf-ctp" data-ctp-code="' + escapeHtml(row.ctp_code) + '">'
+        + '<td class="urssaf-ctp-table__chevron-col"><span class="urssaf-ctp-chevron">\u25b6</span></td>'
+        + '<td class="mono">' + escapeHtml(mappedCode) + '</td>'
+        + '<td>' + escapeHtml(row.label || NOT_AVAILABLE) + '</td>'
+        + '<td class="mono">' + declaredCell + '</td>'
+        + '<td class="mono">' + individualCell + '</td>'
+        + '<td class="mono">' + deltaCell + '</td>'
+        + '<td>' + rattachementBadge + '</td>'
+        + '</tr>';
 
-          return rowHtml;
-        }).join("");
+      // Row-level warnings (from UrssafCodeBreakdown.warnings) surface inside
+      // the parent row area so they stay visible even when collapsed.
+      var breakdownWarnings = (b && Array.isArray(b.warnings)) ? b.warnings : [];
+      var warningRow = '';
+      if (breakdownWarnings.length > 0) {
+        warningRow = '<tr class="detail-warning-row urssaf-ctp-warning-row">'
+          + '<td colspan="7">'
+          + breakdownWarnings.map(function (w) {
+              return '<div class="inline-warning">'
+                + '<span class="inline-warning__icon">&#9888;</span>'
+                + '<span class="inline-warning__text">' + escapeHtml(String(w)) + '</span>'
+                + '</div>';
+            }).join("")
+          + '</td></tr>';
+      }
 
-    // Count warnings on filtered-out rows
+      // Expansion content is always rendered; visibility is controlled via
+      // the ``hidden`` attribute so the click handler can toggle it via
+      // direct DOM manipulation without a full re-render.
+      var expansionContent = '<tr class="urssaf-ctp-expansion"' + (expanded ? '' : ' hidden') + '>'
+        + '<td colspan="7">'
+        + '<div class="urssaf-ctp-expansion__content">'
+        + _renderUrssafAssietteSubRows(assietteDetails)
+        + (b != null ? _renderUrssafEmployeesSubSection(b) : '')
+        + '</div>'
+        + '</td>'
+        + '</tr>';
+
+      return parentRow + warningRow + expansionContent;
+    }).join("");
+
+    // Count warnings on filtered-out rows so the user knows they exist.
     var hiddenWarningCount = 0;
     if (filterActive) {
-      details.forEach(function (d) {
-        if (!d.rate_mismatch && !d.amount_mismatch && d.warnings && d.warnings.length > 0) {
-          hiddenWarningCount += d.warnings.length;
-        }
+      ctpRows.forEach(function (row, idx) {
+        if (ecartFlags[idx]) return;
+        var b = row.breakdown;
+        if (b && Array.isArray(b.warnings)) hiddenWarningCount += b.warnings.length;
+        row.assietteDetails.forEach(function (d) {
+          if (d.warnings && d.warnings.length > 0 && !d.rate_mismatch && !d.amount_mismatch) {
+            hiddenWarningCount += d.warnings.length;
+          }
+        });
       });
     }
     var hiddenWarningNotice = hiddenWarningCount > 0
@@ -1386,9 +1655,14 @@
 
     return toolbar
       + '<div class="contrib-details-wrap">'
-      + '<table class="data-table contrib-details-table" style="margin-top: var(--sp-4);">'
-      + '<thead><tr><th>Code</th><th>Libell\u00e9</th><th>Assiette</th><th>Taux</th><th>Montant</th><th>Delta</th></tr></thead>'
-      + '<tbody>' + body + '</tbody>'
+      + '<table class="data-table urssaf-ctp-table" style="margin-top: var(--sp-4);">'
+      + '<thead><tr>'
+      + '<th class="urssaf-ctp-table__chevron-col"></th>'
+      + '<th>Code</th><th>Libell\u00e9</th>'
+      + '<th>D\u00e9clar\u00e9</th><th>Individuel</th><th>Delta code</th>'
+      + '<th>Rattachement</th>'
+      + '</tr></thead>'
+      + '<tbody>' + bodyHtml + '</tbody>'
       + '</table>'
       + '</div>'
       + hiddenWarningNotice;
@@ -1524,6 +1798,7 @@
       activePage: "controle",
       contribFilterEcartsOnly: true,
       expandedContribItems: {},
+      expandedUrssafCtps: {},
       hasUploadAttempted: false,
       lastUploadFilename: null,
       lastUploadFileBase64: null,
@@ -1591,7 +1866,7 @@
       var newScope = btn.dataset.scope;
       if (newScope === state.scope) return;
       if (newScope === "establishment" && state.data && state.data.establishments.length === 0) return;
-      setState({ scope: newScope, activeEstIdx: 0, expandedContribItems: {} });
+      setState({ scope: newScope, activeEstIdx: 0, expandedContribItems: {}, expandedUrssafCtps: {} });
     });
   });
 
@@ -1601,7 +1876,7 @@
     if (!btn) return;
     var idx = parseInt(btn.dataset.index, 10);
     if (idx !== state.activeEstIdx) {
-      setState({ activeEstIdx: idx, expandedContribItems: {} });
+      setState({ activeEstIdx: idx, expandedContribItems: {}, expandedUrssafCtps: {} });
     }
   });
 
@@ -1614,6 +1889,47 @@
   });
 
   $contribFamilyPanels.addEventListener("click", function (e) {
+    // Slice D: URSSAF CTP-level toggle takes precedence over the card-level
+    // toggle because a CTP row lives inside a .contrib-item, so both
+    // e.target.closest() calls would match the same click without this guard.
+    var ctpRow = e.target.closest("[data-action='toggle-urssaf-ctp']");
+    if (ctpRow) {
+      if (e.target.tagName === "INPUT") return; // let the filter toggle through
+      var article = ctpRow.closest(".contrib-item");
+      if (!article) return;
+      var itemKey = article.dataset.itemId;
+      var ctpCode = ctpRow.dataset.ctpCode || "";
+      // Find the immediate expansion sibling row so we can toggle it.
+      var expansionRow = ctpRow.nextElementSibling;
+      // Skip a warning row if present (it sits between the parent row and
+      // the expansion row when UrssafCodeBreakdown.warnings is non-empty).
+      while (expansionRow && !expansionRow.classList.contains("urssaf-ctp-expansion")) {
+        expansionRow = expansionRow.nextElementSibling;
+      }
+      if (!expansionRow) return;
+
+      var isExpanded = ctpRow.classList.contains("urssaf-ctp-row--expanded");
+      if (isExpanded) {
+        ctpRow.classList.remove("urssaf-ctp-row--expanded");
+        expansionRow.setAttribute("hidden", "");
+      } else {
+        ctpRow.classList.add("urssaf-ctp-row--expanded");
+        expansionRow.removeAttribute("hidden");
+      }
+
+      // Persist expansion state silently (no re-render). Keyed by
+      // "{itemStableKey}:ctp:{ctp_code}" — this mirrors the key built by
+      // _urssafCtpExpandKey() so a follow-up re-render restores the state.
+      var ctpKey = itemKey + ":ctp:" + ctpCode;
+      var updatedCtps = {};
+      for (var c in state.expandedUrssafCtps) {
+        updatedCtps[c] = state.expandedUrssafCtps[c];
+      }
+      updatedCtps[ctpKey] = !isExpanded;
+      state.expandedUrssafCtps = updatedCtps;
+      return;
+    }
+
     var summary = e.target.closest("[data-action='toggle-detail']");
     if (!summary) return;
     // Don't toggle when clicking on the filter checkbox

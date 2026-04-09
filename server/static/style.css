@@ -1425,9 +1425,137 @@ body[data-state="error"] #error-screen {
   text-align: center;
 }
 
+/* ── URSSAF CTP drill-down (Slice D) ─────────────────────── */
+
+.urssaf-ctp-table {
+  min-width: 900px;
+}
+
+.urssaf-ctp-table__chevron-col {
+  width: 28px;
+  text-align: center;
+}
+
+.urssaf-ctp-row {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.urssaf-ctp-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.urssaf-ctp-row--ecart {
+  background: color-mix(in srgb, var(--color-error) 6%, transparent);
+}
+
+.urssaf-ctp-row--ecart:hover {
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
+}
+
+.urssaf-ctp-chevron {
+  display: inline-block;
+  font-size: var(--fs-xs);
+  color: var(--color-text-secondary);
+  transition: transform 0.12s ease;
+  transform-origin: center;
+}
+
+.urssaf-ctp-row--expanded .urssaf-ctp-chevron {
+  transform: rotate(90deg);
+}
+
+.urssaf-ctp-warning-row td {
+  padding: var(--sp-1) var(--sp-3);
+  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
+}
+
+.urssaf-ctp-expansion > td {
+  padding: 0;
+  background: color-mix(in srgb, var(--color-surface) 60%, transparent);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.urssaf-ctp-expansion__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
+}
+
+.urssaf-sub-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.urssaf-sub-section__title {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+  margin: 0;
+  font-weight: 600;
+}
+
+.urssaf-sub-table {
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+
+.urssaf-sub-table th {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.urssaf-sub-table td {
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.urssaf-employees-table tbody tr:hover {
+  background: var(--color-surface-hover);
+}
+
+.urssaf-ctp-empty-message {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text-secondary);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.urssaf-ctp-empty-message strong {
+  color: var(--color-text-primary);
+  display: block;
+  margin-bottom: var(--sp-1);
+}
+
+.urssaf-ctp-empty-message--non-rattache {
+  border-color: color-mix(in srgb, var(--color-text-secondary) 30%, var(--color-border));
+  background: color-mix(in srgb, var(--color-surface-hover) 60%, transparent);
+}
+
+.urssaf-ctp-empty-message--missing {
+  border-color: color-mix(in srgb, var(--color-warning) 30%, var(--color-border));
+  background: color-mix(in srgb, var(--color-warning) 4%, transparent);
+}
+
+.urssaf-ctp-empty-message code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 1px 5px;
+  background: var(--color-surface-hover);
+  border-radius: 3px;
+}
+
 /* ── Sticky table header ─────────────────────────────────── */
 
-.contrib-details-table thead th {
+.contrib-details-table thead th,
+.urssaf-ctp-table thead th {
   position: sticky;
   top: 0;
   z-index: 5;
