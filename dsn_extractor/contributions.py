@@ -306,24 +306,39 @@ def _compute_pas(
 # ---------------------------------------------------------------------------
 
 
+#: Per-CTP "incomplete collapse" warning — mirrors the item-level
+#: "Sous-total CTP non affiché" message emitted by _compute_urssaf when
+#: component_amount is hidden because at least one CTP is non_calculable.
+#: Applied here at the per-CTP level when one assiette variant is calculable
+#: and another is not, so the collapsed row never advertises a partial total.
+_PARTIAL_CTP_WARNING = (
+    "Sous-total CTP non affiché : au moins une variante d'assiette n'est "
+    "pas calculable à partir de la DSN seule."
+)
+
+
 def _collect_s81_by_individual_code(
     employee_blocks: list[EmployeeBlock],
-) -> tuple[dict[str, list[tuple[str, Decimal, list[int]]]], bool]:
+) -> tuple[dict[str, list[tuple[int, str, Decimal, list[int]]]], bool]:
     """Scan employees once and bucket S81 amounts by individual code.
 
     Returns a tuple ``(by_code, has_any_s78_s81)`` where:
         - ``by_code`` maps ``S21.G00.81.001`` → list of
-          ``(employee_display_name, amount, record_lines)`` tuples.
+          ``(employee_index, employee_display_name, amount, record_lines)``
+          tuples. ``employee_index`` is the stable position of the source
+          block in ``employee_blocks`` and is used by the caller as the
+          aggregation key so that two distinct employees sharing the same
+          visible name (homonyms) are never collapsed into one row.
           Multiple rows for the same (employee, code) pair are preserved
           as separate tuples; the caller is responsible for aggregation.
         - ``has_any_s78_s81`` is True when at least one S78 block exists in
           the scanned employees (used to decide whether to surface the
           "non_rattache despite individual data present" warning).
     """
-    by_code: dict[str, list[tuple[str, Decimal, list[int]]]] = {}
+    by_code: dict[str, list[tuple[int, str, Decimal, list[int]]]] = {}
     has_any_s78_s81 = False
 
-    for emp in employee_blocks:
+    for emp_idx, emp in enumerate(employee_blocks):
         emp_groups = group_employee_blocks(emp)
         if emp_groups.s78_blocks:
             has_any_s78_s81 = True
@@ -338,7 +353,7 @@ def _collect_s81_by_individual_code(
                 if amt is None:
                     continue
                 by_code.setdefault(code_81, []).append(
-                    (emp_name, amt, _record_lines(s81.records))
+                    (emp_idx, emp_name, amt, _record_lines(s81.records))
                 )
 
     return by_code, has_any_s78_s81
@@ -346,7 +361,7 @@ def _collect_s81_by_individual_code(
 
 def _build_urssaf_code_breakdowns(
     details: list[ContributionComparisonDetail],
-    s81_by_code: dict[str, list[tuple[str, Decimal, list[int]]]],
+    s81_by_code: dict[str, list[tuple[int, str, Decimal, list[int]]]],
 ) -> list[UrssafCodeBreakdown]:
     """Group URSSAF details by CTP code and attach employee drill-down when mappable.
 
@@ -356,12 +371,22 @@ def _build_urssaf_code_breakdowns(
     matched via the Slice B mapping table (``urssaf_individual_mapping.tsv``)
     with a default-deny rule: unknown CTPs are reported as ``non_rattache``
     without attempting any drill-down.
+
+    Per-CTP completeness is tracked while collapsing: if any contributing
+    detail row has no chosen amount (neither declared nor recomputed), the
+    collapsed row's ``declared_amount`` is suppressed (set to ``None``) and
+    a warning is attached so the UI never presents a partial sum as if it
+    were the full per-code declared total.
     """
     # Preserve the order of first appearance in `details` so UI tables stay
     # deterministic.
     ordered_ctps: list[str] = []
     declared_by_ctp: dict[str, Decimal | None] = {}
     label_by_ctp: dict[str, str | None] = {}
+    # A CTP is "complete" only when every one of its contributing detail
+    # rows produced a chosen amount. Start optimistic, flip to False on the
+    # first non-calculable variant seen.
+    complete_by_ctp: dict[str, bool] = {}
 
     for d in details:
         ctp = d.ctp_code or ""
@@ -371,6 +396,7 @@ def _build_urssaf_code_breakdowns(
             ordered_ctps.append(ctp)
             declared_by_ctp[ctp] = None
             label_by_ctp[ctp] = d.label
+            complete_by_ctp[ctp] = True
 
         # Chosen amount per detail mirrors _compute_urssaf's ctp_amount logic.
         chosen: Decimal | None
@@ -381,14 +407,24 @@ def _build_urssaf_code_breakdowns(
         else:
             chosen = None
 
-        if chosen is not None:
+        if chosen is None:
+            # Any non-calculable variant downgrades the whole CTP collapse.
+            complete_by_ctp[ctp] = False
+        else:
             current = declared_by_ctp[ctp]
             declared_by_ctp[ctp] = (current or Decimal(0)) + chosen
 
     breakdowns: list[UrssafCodeBreakdown] = []
     for ctp in ordered_ctps:
-        declared = declared_by_ctp[ctp]
+        is_complete = complete_by_ctp.get(ctp, False)
+        # When the collapse is incomplete, suppress the per-code declared
+        # total so the UI cannot read a misleading "full" amount. The
+        # individual side (from S78/S81) is orthogonal and stays real.
+        declared = declared_by_ctp[ctp] if is_complete else None
         label = label_by_ctp[ctp]
+        row_warnings: list[str] = []
+        if not is_complete:
+            row_warnings.append(_PARTIAL_CTP_WARNING)
 
         if not is_urssaf_code_mappable(ctp):
             breakdowns.append(UrssafCodeBreakdown(
@@ -396,6 +432,7 @@ def _build_urssaf_code_breakdowns(
                 ctp_label=label,
                 mapping_status="non_rattache",
                 declared_amount=declared,
+                warnings=row_warnings,
             ))
             continue
 
@@ -409,23 +446,29 @@ def _build_urssaf_code_breakdowns(
                 individual_code=individual_code,
                 mapping_status="manquant_individuel",
                 declared_amount=declared,
+                warnings=row_warnings,
             ))
             continue
 
-        # Aggregate by employee name so repeated S81 rows for the same
-        # employee collapse to one breakdown line.
-        by_employee: dict[str, tuple[Decimal, list[int]]] = {}
-        for emp_name, amt, lines in rows:
-            if emp_name in by_employee:
-                prev_amt, prev_lines = by_employee[emp_name]
-                by_employee[emp_name] = (prev_amt + amt, prev_lines + lines)
+        # Aggregate by employee INDEX (stable per-block identity), not by
+        # display name — two distinct employees with identical visible names
+        # must not collapse into one row. Keep the display name alongside
+        # the index so the UI still gets the human-readable label.
+        by_employee: dict[int, tuple[str, Decimal, list[int]]] = {}
+        for emp_idx, emp_name, amt, lines in rows:
+            if emp_idx in by_employee:
+                prev_name, prev_amt, prev_lines = by_employee[emp_idx]
+                by_employee[emp_idx] = (prev_name, prev_amt + amt, prev_lines + lines)
             else:
-                by_employee[emp_name] = (amt, list(lines))
+                by_employee[emp_idx] = (emp_name, amt, list(lines))
 
         individual_total = sum(
-            (amt for amt, _ in by_employee.values()),
+            (amt for _, amt, _ in by_employee.values()),
             Decimal(0),
         )
+        # Sort for deterministic UI order: alphabetical by display name,
+        # ties broken by the stable employee index so homonyms appear in
+        # file order rather than randomly.
         employees = [
             EmployeeContributionBreakdown(
                 employee_name=name,
@@ -433,7 +476,10 @@ def _build_urssaf_code_breakdowns(
                 amount=amt,
                 record_lines=lines,
             )
-            for name, (amt, lines) in sorted(by_employee.items())
+            for idx, (name, amt, lines) in sorted(
+                by_employee.items(),
+                key=lambda item: (item[1][0], item[0]),
+            )
         ]
 
         delta: Decimal | None = None
@@ -449,6 +495,7 @@ def _build_urssaf_code_breakdowns(
             individual_amount=individual_total,
             delta=delta,
             employees=employees,
+            warnings=row_warnings,
         ))
 
     return breakdowns

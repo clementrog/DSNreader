@@ -980,6 +980,116 @@ class TestUrssafIndividualDrilldown:
         pas = [i for i in cc.items if i.family == "pas"][0]
         assert pas.urssaf_code_breakdowns == []
 
+    # ---- Regression: homonyms and partial collapse -----------------------
+
+    def test_homonyms_are_not_collapsed(self):
+        """Two distinct employee blocks with identical display names must
+        stay as two separate employee rows in the breakdown — aggregation
+        uses a stable per-block identity, not the visible name.
+        """
+        # Both employees share nom=DUPONT / prenom=Jean → same display name.
+        # Different empno (S21.G00.30.001) proves they are distinct blocks.
+        emp1 = self._employee(
+            *self._s78_with_s81("100", "30.00"),
+            nom="DUPONT", prenom="Jean", empno="E001",
+        )
+        emp2 = self._employee(
+            *self._s78_with_s81("100", "18.00"),
+            nom="DUPONT", prenom="Jean", empno="E002",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp_027("48.00", employees=[emp1, emp2]))
+
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "rattachable"
+        # Not merged: one row per source block.
+        assert len(b.employees) == 2
+        assert [e.employee_name for e in b.employees] == ["DUPONT Jean", "DUPONT Jean"]
+        # Amounts preserved per block — 30 and 18, not 48 merged.
+        assert sorted(e.amount for e in b.employees) == [Decimal("18.00"), Decimal("30.00")]
+        # Item total still matches the sum.
+        assert b.individual_amount == Decimal("48.00")
+        assert b.delta == Decimal("0.00")
+
+    def test_multi_assiette_partial_collapse_hides_declared_total(self):
+        """CTP 100 with two assiette variants: one calculable via base+rate
+        (920), the other non_calculable (921 has base but no rate and no
+        declared amount). The collapsed breakdown row must suppress
+        ``declared_amount`` and ``delta``, and attach a warning explaining
+        why — mirrors the item-level ``component_amount`` hiding rule so
+        a partial sum is never presented as complete.
+        """
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "219.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "219.00", 4),
+            # Variant 1: calculable (base × rate = 3000 × 7.30% = 219.00)
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "7.30", 7),
+            _r("S21.G00.23.004", "3000.00", 8),
+            # Variant 2: non_calculable (base only, no rate, no declared)
+            _r("S21.G00.23.001", "100", 9),
+            _r("S21.G00.23.002", "921", 10),
+            _r("S21.G00.23.004", "500.00", 11),
+        )
+        urssaf = self._get_urssaf(est)
+
+        assert len(urssaf.urssaf_code_breakdowns) == 1
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "100"
+        # Partial collapse → declared side is suppressed, not exposed as 219.
+        assert b.declared_amount is None
+        assert b.delta is None
+        # A warning explains why the collapsed row is partial.
+        assert any(
+            "Sous-total CTP non affiché" in w or "non calculable" in w.lower()
+            for w in b.warnings
+        )
+
+    def test_multi_assiette_partial_keeps_real_individual_side(self):
+        """When the declared side collapses to partial, the individual
+        drill-down (from S78/S81) must still be populated — it's
+        orthogonal data, not affected by the establishment-side gap.
+        Delta stays ``None`` because ``declared_amount`` is hidden, but
+        the employees list and ``individual_amount`` remain real.
+
+        CTP 100 is not in the locked mapping table, so for this test we
+        use CTP 027 instead and create a single non_calculable variant by
+        declaring the CTP twice with one variant missing both declared
+        and rate.
+        """
+        emp = self._employee(*self._s78_with_s81("100", "40.00"))
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "48.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "48.00", 4),
+            # Variant A: declared (calculable)
+            _r("S21.G00.23.001", "027", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "48.00", 7),
+            # Variant B: base only, no rate, no declared (non_calculable)
+            _r("S21.G00.23.001", "027", 8),
+            _r("S21.G00.23.002", "921", 9),
+            _r("S21.G00.23.004", "1000.00", 10),
+            employees=[emp],
+        )
+        urssaf = self._get_urssaf(est)
+
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "027"
+        # Declared side is hidden (partial); delta follows.
+        assert b.declared_amount is None
+        assert b.delta is None
+        # Individual side is real and untouched — CTP 027 is mappable.
+        assert b.mapping_status == "rattachable"
+        assert b.individual_amount == Decimal("40.00")
+        assert len(b.employees) == 1
+        assert b.employees[0].amount == Decimal("40.00")
+        # Warning on the breakdown row explains the partial collapse.
+        assert any("Sous-total CTP non affiché" in w for w in b.warnings)
+
 
 class TestRoundingTolerancePAS:
     """Arrondi à l'entier: PAS aggregate vs individual tolerance is ±0.49€."""
