@@ -177,6 +177,50 @@ class ContributionComparisonDetail(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class EmployeeContributionBreakdown(BaseModel):
+    """One employee's contribution to a single individual code (S21.G00.81.001).
+
+    Amounts are summed across all S81 rows for the same (employee, code) pair
+    so repeated rows (e.g. regularisations within the same month) collapse to
+    one line. Line references accumulate across the collapsed rows.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    employee_name: str
+    individual_code: str | None = None  # S21.G00.81.001
+    amount: Decimal
+    record_lines: list[int] = Field(default_factory=list)
+
+
+class UrssafCodeBreakdown(BaseModel):
+    """Per-CTP drill-down from establishment-level code to employee-level amounts.
+
+    Populated only for URSSAF items. One row per distinct CTP code found in
+    S23 (i.e. assiette variants of the same CTP collapse into one breakdown).
+
+    ``mapping_status`` values:
+        - ``rattachable``       : CTP is in the Slice B mapping table and at
+                                  least one matching S81 row was found.
+        - ``non_rattache``      : CTP is not in the mapping table. Default-deny.
+                                  No drill-down attempted.
+        - ``manquant_individuel``: CTP is mappable but no matching S81 rows
+                                   were found in the employee blocks.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ctp_code: str
+    ctp_label: str | None = None
+    individual_code: str | None = None  # Mapped S21.G00.81.001 code, when known
+    mapping_status: str = "non_rattache"
+    declared_amount: Decimal | None = None  # Sum of CTP amounts across assiette variants
+    individual_amount: Decimal | None = None  # Sum of S81.004 across employees
+    delta: Decimal | None = None  # declared_amount - individual_amount
+    employees: list[EmployeeContributionBreakdown] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ContributionComparisonItem(BaseModel):
     """A reconciliation for one organism in one family."""
 
@@ -198,6 +242,10 @@ class ContributionComparisonItem(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     adhesion_id: str | None = None
     contract_ref: str | None = None
+    # Slice C: URSSAF per-CTP drill-down to employee-level amounts.
+    # Empty for non-URSSAF families. Empty for URSSAF items when no S23
+    # details are present or when every CTP is non_rattache with no S78/S81.
+    urssaf_code_breakdowns: list[UrssafCodeBreakdown] = Field(default_factory=list)
 
 
 class ContributionComparisons(BaseModel):

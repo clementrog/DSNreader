@@ -377,6 +377,8 @@ class TestSerialization:
             "aggregate_vs_bordereau_delta", "bordereau_vs_component_delta",
             "aggregate_vs_component_delta", "aggregate_vs_individual_delta",
             "status", "details", "warnings", "adhesion_id", "contract_ref",
+            # Slice C: per-CTP URSSAF drill-down to employee-level amounts.
+            "urssaf_code_breakdowns",
         }
         assert set(data.keys()) == expected_fields
 
@@ -683,6 +685,300 @@ class TestURSSAF:
         assert urssaf.bordereau_vs_component_delta is None
         assert any("Sous-total CTP non affiché" in w for w in urssaf.warnings)
         assert urssaf.status == "ok"
+
+
+class TestUrssafIndividualDrilldown:
+    """Slice C: per-CTP drill-down from establishment-level to employee-level.
+
+    The mapping table in ``dsn_extractor/data/urssaf_individual_mapping.tsv``
+    locks CTP ``027`` → S21.G00.81.001 ``100`` (Contribution au dialogue
+    social) as the first rattachable row. These tests exercise that mapping
+    and the default-deny rule for unmapped codes.
+    """
+
+    @staticmethod
+    def _employee(*extra_records: DSNRecord, nom: str = "DUPONT", prenom: str = "Jean", empno: str = "12345") -> EmployeeBlock:
+        base_line = 10
+        return _emp(
+            _r("S21.G00.30.001", empno, base_line),
+            _r("S21.G00.30.002", nom, base_line + 1),
+            _r("S21.G00.30.004", prenom, base_line + 2),
+            *extra_records,
+        )
+
+    @staticmethod
+    def _s78_with_s81(individual_code: str, amount: str, base_code: str = "30", start_line: int = 20) -> list[DSNRecord]:
+        """Build an S78 block with a single S81 child carrying the given individual code."""
+        return [
+            _r("S21.G00.78.001", base_code, start_line),
+            _r("S21.G00.78.004", "1000.00", start_line + 1),
+            _r("S21.G00.81.001", individual_code, start_line + 2),
+            _r("S21.G00.81.004", amount, start_line + 3),
+        ]
+
+    def _est_with_ctp_027(self, declared: str, employees: list[EmployeeBlock] | None = None):
+        return _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", declared, 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", declared, 4),
+            _r("S21.G00.23.001", "027", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", declared, 7),
+            employees=employees,
+        )
+
+    def _get_urssaf(self, est):
+        cc = compute_contribution_comparisons(est)
+        return [i for i in cc.items if i.family == "urssaf"][0]
+
+    # ---- Rattachable (happy path) ----------------------------------------
+
+    def test_rattachable_single_employee_zero_delta(self):
+        emp = self._employee(*self._s78_with_s81("100", "48.00"))
+        urssaf = self._get_urssaf(self._est_with_ctp_027("48.00", employees=[emp]))
+
+        assert len(urssaf.urssaf_code_breakdowns) == 1
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "027"
+        assert b.mapping_status == "rattachable"
+        assert b.individual_code == "100"
+        assert b.declared_amount == Decimal("48.00")
+        assert b.individual_amount == Decimal("48.00")
+        assert b.delta == Decimal("0.00")
+        assert len(b.employees) == 1
+        assert b.employees[0].employee_name == "DUPONT Jean"
+        assert b.employees[0].individual_code == "100"
+        assert b.employees[0].amount == Decimal("48.00")
+
+    def test_rattachable_multiple_employees_summed(self):
+        emp1 = self._employee(
+            *self._s78_with_s81("100", "30.00"),
+            nom="DUPONT", prenom="Jean", empno="1",
+        )
+        emp2 = self._employee(
+            *self._s78_with_s81("100", "18.00"),
+            nom="MARTIN", prenom="Alice", empno="2",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp_027("48.00", employees=[emp1, emp2]))
+
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "rattachable"
+        assert b.individual_amount == Decimal("48.00")
+        assert b.delta == Decimal("0.00")
+        # Alphabetical order by display name.
+        assert [e.employee_name for e in b.employees] == ["DUPONT Jean", "MARTIN Alice"]
+        assert [e.amount for e in b.employees] == [Decimal("30.00"), Decimal("18.00")]
+
+    def test_rattachable_with_nonzero_delta(self):
+        emp = self._employee(*self._s78_with_s81("100", "40.00"))
+        urssaf = self._get_urssaf(self._est_with_ctp_027("48.00", employees=[emp]))
+
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "rattachable"
+        assert b.declared_amount == Decimal("48.00")
+        assert b.individual_amount == Decimal("40.00")
+        assert b.delta == Decimal("8.00")
+
+    def test_same_employee_multiple_s81_rows_collapse(self):
+        """Two S81 rows with code 100 for the same employee collapse to one
+        breakdown row with the summed amount and merged line references."""
+        emp = self._emp_with_two_s81("100", "20.00", "10.00")
+        urssaf = self._get_urssaf(self._est_with_ctp_027("30.00", employees=[emp]))
+
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "rattachable"
+        assert len(b.employees) == 1
+        assert b.employees[0].employee_name == "DUPONT Jean"
+        assert b.employees[0].amount == Decimal("30.00")
+        # Line references from both S81 rows should be merged.
+        assert len(b.employees[0].record_lines) >= 2
+
+    @staticmethod
+    def _emp_with_two_s81(individual_code: str, amt1: str, amt2: str) -> EmployeeBlock:
+        """Two distinct S78 blocks, each with one S81 for the same employee."""
+        return _emp(
+            _r("S21.G00.30.001", "1", 10),
+            _r("S21.G00.30.002", "DUPONT", 11),
+            _r("S21.G00.30.004", "Jean", 12),
+            _r("S21.G00.78.001", "30", 20),
+            _r("S21.G00.78.004", "500.00", 21),
+            _r("S21.G00.81.001", individual_code, 22),
+            _r("S21.G00.81.004", amt1, 23),
+            _r("S21.G00.78.001", "30", 30),
+            _r("S21.G00.78.004", "500.00", 31),
+            _r("S21.G00.81.001", individual_code, 32),
+            _r("S21.G00.81.004", amt2, 33),
+        )
+
+    # ---- Manquant individuel ---------------------------------------------
+
+    def test_manquant_individuel_when_no_s81_match(self):
+        """CTP 027 declared, employee present with a different S81 code."""
+        emp = self._employee(*self._s78_with_s81("076", "100.00"))
+        urssaf = self._get_urssaf(self._est_with_ctp_027("48.00", employees=[emp]))
+
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "027"
+        assert b.mapping_status == "manquant_individuel"
+        assert b.individual_code == "100"  # mapping known
+        assert b.individual_amount is None
+        assert b.delta is None
+        assert b.employees == []
+
+    def test_manquant_individuel_when_no_employees_at_all(self):
+        urssaf = self._get_urssaf(self._est_with_ctp_027("48.00", employees=None))
+
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "manquant_individuel"
+        assert b.employees == []
+
+    # ---- Non rattache (default deny) -------------------------------------
+
+    def test_non_rattache_for_unmapped_ctp(self):
+        """CTP 100 is not in the mapping table → default-deny."""
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "219.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "219.00", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "7.30", 7),
+            _r("S21.G00.23.004", "3000.00", 8),
+            _r("S21.G00.23.005", "219.00", 9),
+        )
+        urssaf = self._get_urssaf(est)
+
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "100"
+        assert b.mapping_status == "non_rattache"
+        assert b.individual_code is None
+        assert b.individual_amount is None
+        assert b.employees == []
+        # Declared amount is still surfaced — only the drill-down is absent.
+        assert b.declared_amount == Decimal("219.00")
+
+    def test_mixed_mapped_and_unmapped_ctps(self):
+        """CTP 027 (mappable) alongside CTP 100 (unmapped) in the same bordereau."""
+        emp = self._employee(*self._s78_with_s81("100", "48.00"))
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "267.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "267.00", 4),
+            _r("S21.G00.23.001", "027", 5),
+            _r("S21.G00.23.005", "48.00", 6),
+            _r("S21.G00.23.001", "100", 7),
+            _r("S21.G00.23.002", "920", 8),
+            _r("S21.G00.23.005", "219.00", 9),
+            employees=[emp],
+        )
+        urssaf = self._get_urssaf(est)
+
+        breakdowns_by_ctp = {b.ctp_code: b for b in urssaf.urssaf_code_breakdowns}
+        assert set(breakdowns_by_ctp) == {"027", "100"}
+        assert breakdowns_by_ctp["027"].mapping_status == "rattachable"
+        assert breakdowns_by_ctp["027"].individual_amount == Decimal("48.00")
+        assert breakdowns_by_ctp["100"].mapping_status == "non_rattache"
+        assert breakdowns_by_ctp["100"].individual_amount is None
+
+    # ---- Multi-assiette collapse -----------------------------------------
+
+    def test_multi_assiette_ctp_collapses_to_single_breakdown(self):
+        """CTP 100 declared twice with different assiette variants (920/921)
+        should produce a single breakdown row whose declared amount is the
+        sum across variants."""
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "300.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "300.00", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "200.00", 7),
+            _r("S21.G00.23.001", "100", 8),
+            _r("S21.G00.23.002", "921", 9),
+            _r("S21.G00.23.005", "100.00", 10),
+        )
+        urssaf = self._get_urssaf(est)
+
+        assert len(urssaf.urssaf_code_breakdowns) == 1
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "100"
+        assert b.declared_amount == Decimal("300.00")  # 200 + 100
+
+    # ---- Item-level warning ----------------------------------------------
+
+    def test_warning_emitted_when_non_rattache_and_s81_present(self):
+        """Roadmap rule: warn when individual data exists but CTP has no
+        reliable mapping. This surfaces the Slice B default-deny gap to
+        the user."""
+        emp = self._employee(*self._s78_with_s81("076", "100.00"))
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "219.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "219.00", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "219.00", 7),
+            employees=[emp],
+        )
+        urssaf = self._get_urssaf(est)
+
+        assert any(
+            "mapping fiable" in w and "100" in w for w in urssaf.warnings
+        )
+
+    def test_no_warning_when_non_rattache_and_no_s81(self):
+        """No S78/S81 in the file → no warning even if CTPs are non_rattache."""
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "219.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "219.00", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "219.00", 7),
+        )
+        urssaf = self._get_urssaf(est)
+        assert not any("mapping fiable" in w for w in urssaf.warnings)
+
+    # ---- Non-regression of existing controls -----------------------------
+
+    def test_existing_controls_unchanged_by_drilldown(self):
+        """Slice C must not change Control 1 / Control 2 semantics."""
+        emp = self._employee(*self._s78_with_s81("100", "48.00"))
+        urssaf = self._get_urssaf(self._est_with_ctp_027("48.00", employees=[emp]))
+
+        assert urssaf.aggregate_amount == Decimal("48.00")
+        assert urssaf.bordereau_amount == Decimal("48.00")
+        assert urssaf.component_amount == Decimal("48.00")
+        assert urssaf.aggregate_vs_bordereau_delta == Decimal("0.00")
+        assert urssaf.bordereau_vs_component_delta == Decimal("0.00")
+        assert urssaf.status == "ok"
+
+    def test_urssaf_item_without_s23_has_empty_breakdowns(self):
+        """URSSAF bordereau without any S23 child → no drill-down."""
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "5000.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "5000.00", 4),
+        )
+        urssaf = self._get_urssaf(est)
+        assert urssaf.urssaf_code_breakdowns == []
+
+    def test_non_urssaf_item_has_empty_breakdowns(self):
+        """The new field must stay empty for PAS / retraite / complementary."""
+        est = _est(
+            _r("S21.G00.20.001", "DGFIP", 1),
+            _r("S21.G00.20.005", "1000.00", 2),
+        )
+        cc = compute_contribution_comparisons(est)
+        pas = [i for i in cc.items if i.family == "pas"][0]
+        assert pas.urssaf_code_breakdowns == []
 
 
 class TestRoundingTolerancePAS:

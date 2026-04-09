@@ -23,6 +23,8 @@ from dsn_extractor.models import (
     ContributionComparisonDetail,
     ContributionComparisonItem,
     ContributionComparisons,
+    EmployeeContributionBreakdown,
+    UrssafCodeBreakdown,
 )
 from dsn_extractor.normalize import normalize_decimal
 from dsn_extractor.organisms import (
@@ -33,6 +35,10 @@ from dsn_extractor.organisms import (
     lookup_ctp,
 )
 from dsn_extractor.parser import DSNRecord, EmployeeBlock, EstablishmentBlock
+from dsn_extractor.urssaf_individual_mapping import (
+    get_individual_code_for_ctp,
+    is_urssaf_code_mappable,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -300,11 +306,160 @@ def _compute_pas(
 # ---------------------------------------------------------------------------
 
 
+def _collect_s81_by_individual_code(
+    employee_blocks: list[EmployeeBlock],
+) -> tuple[dict[str, list[tuple[str, Decimal, list[int]]]], bool]:
+    """Scan employees once and bucket S81 amounts by individual code.
+
+    Returns a tuple ``(by_code, has_any_s78_s81)`` where:
+        - ``by_code`` maps ``S21.G00.81.001`` → list of
+          ``(employee_display_name, amount, record_lines)`` tuples.
+          Multiple rows for the same (employee, code) pair are preserved
+          as separate tuples; the caller is responsible for aggregation.
+        - ``has_any_s78_s81`` is True when at least one S78 block exists in
+          the scanned employees (used to decide whether to surface the
+          "non_rattache despite individual data present" warning).
+    """
+    by_code: dict[str, list[tuple[str, Decimal, list[int]]]] = {}
+    has_any_s78_s81 = False
+
+    for emp in employee_blocks:
+        emp_groups = group_employee_blocks(emp)
+        if emp_groups.s78_blocks:
+            has_any_s78_s81 = True
+        emp_name = _employee_display_name(emp)
+
+        for s78 in emp_groups.s78_blocks:
+            for s81 in s78.children:
+                code_81 = (_find_value(s81.records, "S21.G00.81.001") or "").strip()
+                if not code_81:
+                    continue
+                amt = _dec(_find_value(s81.records, "S21.G00.81.004"))
+                if amt is None:
+                    continue
+                by_code.setdefault(code_81, []).append(
+                    (emp_name, amt, _record_lines(s81.records))
+                )
+
+    return by_code, has_any_s78_s81
+
+
+def _build_urssaf_code_breakdowns(
+    details: list[ContributionComparisonDetail],
+    s81_by_code: dict[str, list[tuple[str, Decimal, list[int]]]],
+) -> list[UrssafCodeBreakdown]:
+    """Group URSSAF details by CTP code and attach employee drill-down when mappable.
+
+    The breakdown is computed at CTP level (not per-assiette-variant) so that
+    multi-assiette CTPs like ``100D``/``100P`` produce a single row whose
+    declared amount is the sum across variants. The individual side is
+    matched via the Slice B mapping table (``urssaf_individual_mapping.tsv``)
+    with a default-deny rule: unknown CTPs are reported as ``non_rattache``
+    without attempting any drill-down.
+    """
+    # Preserve the order of first appearance in `details` so UI tables stay
+    # deterministic.
+    ordered_ctps: list[str] = []
+    declared_by_ctp: dict[str, Decimal | None] = {}
+    label_by_ctp: dict[str, str | None] = {}
+
+    for d in details:
+        ctp = d.ctp_code or ""
+        if not ctp:
+            continue
+        if ctp not in declared_by_ctp:
+            ordered_ctps.append(ctp)
+            declared_by_ctp[ctp] = None
+            label_by_ctp[ctp] = d.label
+
+        # Chosen amount per detail mirrors _compute_urssaf's ctp_amount logic.
+        chosen: Decimal | None
+        if d.declared_amount is not None:
+            chosen = d.declared_amount
+        elif d.computed_amount is not None:
+            chosen = d.computed_amount
+        else:
+            chosen = None
+
+        if chosen is not None:
+            current = declared_by_ctp[ctp]
+            declared_by_ctp[ctp] = (current or Decimal(0)) + chosen
+
+    breakdowns: list[UrssafCodeBreakdown] = []
+    for ctp in ordered_ctps:
+        declared = declared_by_ctp[ctp]
+        label = label_by_ctp[ctp]
+
+        if not is_urssaf_code_mappable(ctp):
+            breakdowns.append(UrssafCodeBreakdown(
+                ctp_code=ctp,
+                ctp_label=label,
+                mapping_status="non_rattache",
+                declared_amount=declared,
+            ))
+            continue
+
+        individual_code = get_individual_code_for_ctp(ctp)
+        rows = s81_by_code.get(individual_code or "", [])
+
+        if not rows:
+            breakdowns.append(UrssafCodeBreakdown(
+                ctp_code=ctp,
+                ctp_label=label,
+                individual_code=individual_code,
+                mapping_status="manquant_individuel",
+                declared_amount=declared,
+            ))
+            continue
+
+        # Aggregate by employee name so repeated S81 rows for the same
+        # employee collapse to one breakdown line.
+        by_employee: dict[str, tuple[Decimal, list[int]]] = {}
+        for emp_name, amt, lines in rows:
+            if emp_name in by_employee:
+                prev_amt, prev_lines = by_employee[emp_name]
+                by_employee[emp_name] = (prev_amt + amt, prev_lines + lines)
+            else:
+                by_employee[emp_name] = (amt, list(lines))
+
+        individual_total = sum(
+            (amt for amt, _ in by_employee.values()),
+            Decimal(0),
+        )
+        employees = [
+            EmployeeContributionBreakdown(
+                employee_name=name,
+                individual_code=individual_code,
+                amount=amt,
+                record_lines=lines,
+            )
+            for name, (amt, lines) in sorted(by_employee.items())
+        ]
+
+        delta: Decimal | None = None
+        if declared is not None:
+            delta = declared - individual_total
+
+        breakdowns.append(UrssafCodeBreakdown(
+            ctp_code=ctp,
+            ctp_label=label,
+            individual_code=individual_code,
+            mapping_status="rattachable",
+            declared_amount=declared,
+            individual_amount=individual_total,
+            delta=delta,
+            employees=employees,
+        ))
+
+    return breakdowns
+
+
 def _compute_urssaf(
     organism_id: str,
     s20_blocks: list[BlockGroup],
     s22_blocks: list[BlockGroup],
     est_groups: EstablishmentBlockGroups,
+    employee_blocks: list[EmployeeBlock],
     reference_date: dt.date | None,
 ) -> ContributionComparisonItem:
     label, _, _ = lookup_organism(organism_id)
@@ -511,6 +666,24 @@ def _compute_urssaf(
     if has_regularization:
         warnings.append(REGULARIZATION_WARNING)
 
+    # Slice C: per-CTP drill-down to employee-level amounts via Slice B mapping.
+    s81_by_code, has_any_s78_s81 = _collect_s81_by_individual_code(employee_blocks)
+    urssaf_code_breakdowns = _build_urssaf_code_breakdowns(details, s81_by_code)
+
+    # Warn when individual data is present in the file but some CTPs have
+    # no reliable mapping to S81.001 — surfaces the "default-deny" gap so
+    # users know why drill-down is absent for those codes.
+    if has_any_s78_s81 and any(
+        b.mapping_status == "non_rattache" for b in urssaf_code_breakdowns
+    ):
+        unmapped = sorted(
+            {b.ctp_code for b in urssaf_code_breakdowns if b.mapping_status == "non_rattache"}
+        )
+        warnings.append(
+            "Données individuelles (S78/S81) présentes dans la DSN mais "
+            f"sans mapping fiable pour : {', '.join(unmapped)}."
+        )
+
     return ContributionComparisonItem(
         family="urssaf",
         organism_id=organism_id,
@@ -523,6 +696,7 @@ def _compute_urssaf(
         status=status,
         details=details,
         warnings=warnings,
+        urssaf_code_breakdowns=urssaf_code_breakdowns,
     )
 
 
@@ -1073,6 +1247,7 @@ def compute_contribution_comparisons(
                 s20_list,
                 est_groups.s22_blocks,
                 est_groups,
+                est_block.employee_blocks,
                 reference_date,
             )
         )
