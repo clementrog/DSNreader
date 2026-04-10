@@ -1363,6 +1363,19 @@ body[data-state="error"] #error-screen {
   font-size: var(--fs-xs);
 }
 
+.badge-recalc {
+  display: inline-block;
+  margin-left: var(--sp-1);
+  padding: 0 var(--sp-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  color: var(--color-warning);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  border-radius: 3px;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+
 .cell-sublabel {
   display: block;
   font-family: var(--font-sans);

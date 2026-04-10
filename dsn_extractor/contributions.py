@@ -35,9 +35,9 @@ from dsn_extractor.organisms import (
     lookup_ctp,
 )
 from dsn_extractor.parser import DSNRecord, EmployeeBlock, EstablishmentBlock
-from dsn_extractor.urssaf_individual_mapping import (
-    get_individual_code_for_ctp,
-    is_urssaf_code_mappable,
+from dsn_extractor.urssaf_mapping_rules import (
+    get_rule,
+    is_rule_active,
 )
 
 
@@ -319,23 +319,26 @@ _PARTIAL_CTP_WARNING = (
 
 def _collect_s81_by_individual_code(
     employee_blocks: list[EmployeeBlock],
-) -> tuple[dict[str, list[tuple[int, str, Decimal, list[int]]]], bool]:
+) -> tuple[dict[str, list[tuple[int, str, Decimal, list[int], str]]], bool]:
     """Scan employees once and bucket S81 amounts by individual code.
 
     Returns a tuple ``(by_code, has_any_s78_s81)`` where:
         - ``by_code`` maps ``S21.G00.81.001`` → list of
-          ``(employee_index, employee_display_name, amount, record_lines)``
-          tuples. ``employee_index`` is the stable position of the source
-          block in ``employee_blocks`` and is used by the caller as the
-          aggregation key so that two distinct employees sharing the same
-          visible name (homonyms) are never collapsed into one row.
-          Multiple rows for the same (employee, code) pair are preserved
-          as separate tuples; the caller is responsible for aggregation.
+          ``(employee_index, employee_display_name, amount, record_lines,
+          base_code_s78)`` tuples. ``employee_index`` is the stable
+          position of the source block in ``employee_blocks`` and is used
+          by the caller as the aggregation key so that two distinct
+          employees sharing the same visible name (homonyms) are never
+          collapsed into one row. ``base_code_s78`` is the parent S78
+          base code (``S21.G00.78.001``) used for component-scoped
+          matching. Multiple rows for the same (employee, code) pair are
+          preserved as separate tuples; the caller is responsible for
+          aggregation.
         - ``has_any_s78_s81`` is True when at least one S78 block exists in
           the scanned employees (used to decide whether to surface the
           "non_rattache despite individual data present" warning).
     """
-    by_code: dict[str, list[tuple[int, str, Decimal, list[int]]]] = {}
+    by_code: dict[str, list[tuple[int, str, Decimal, list[int], str]]] = {}
     has_any_s78_s81 = False
 
     for emp_idx, emp in enumerate(employee_blocks):
@@ -345,6 +348,7 @@ def _collect_s81_by_individual_code(
         emp_name = _employee_display_name(emp)
 
         for s78 in emp_groups.s78_blocks:
+            base_code_78 = (_find_value(s78.records, "S21.G00.78.001") or "").strip()
             for s81 in s78.children:
                 code_81 = (_find_value(s81.records, "S21.G00.81.001") or "").strip()
                 if not code_81:
@@ -353,7 +357,7 @@ def _collect_s81_by_individual_code(
                 if amt is None:
                     continue
                 by_code.setdefault(code_81, []).append(
-                    (emp_idx, emp_name, amt, _record_lines(s81.records))
+                    (emp_idx, emp_name, amt, _record_lines(s81.records), base_code_78)
                 )
 
     return by_code, has_any_s78_s81
@@ -361,16 +365,22 @@ def _collect_s81_by_individual_code(
 
 def _build_urssaf_code_breakdowns(
     details: list[ContributionComparisonDetail],
-    s81_by_code: dict[str, list[tuple[int, str, Decimal, list[int]]]],
+    s81_by_code: dict[str, list[tuple[int, str, Decimal, list[int], str]]],
+    qualifiers_by_ctp: dict[str, set[str]],
+    insee_codes_by_ctp: dict[str, set[str]],
+    ctps_with_empty_qualifier: set[str] | None = None,
 ) -> list[UrssafCodeBreakdown]:
-    """Group URSSAF details by CTP code and attach employee drill-down when mappable.
+    """Group URSSAF details by CTP code and attach employee drill-down.
 
     The breakdown is computed at CTP level (not per-assiette-variant) so that
-    multi-assiette CTPs like ``100D``/``100P`` produce a single row whose
-    declared amount is the sum across variants. The individual side is
-    matched via the Slice B mapping table (``urssaf_individual_mapping.tsv``)
-    with a default-deny rule: unknown CTPs are reported as ``non_rattache``
-    without attempting any drill-down.
+    multi-assiette CTPs produce a single row whose declared amount is the sum
+    across variants. The individual side is matched via the V1 rule engine
+    (``dsn_extractor.urssaf_mapping_rules``) with a default-deny rule: unknown
+    CTPs are reported as ``non_rattache`` without attempting any drill-down.
+
+    For rules with ``components``, matching is qualifier-scoped: only components
+    whose assiette qualifier was declared in the bordereau are activated, and
+    S81 rows are filtered by the component's allowed base codes.
 
     Per-CTP completeness is tracked while collapsing: if any contributing
     detail row has no chosen amount (neither declared nor recomputed), the
@@ -426,59 +436,189 @@ def _build_urssaf_code_breakdowns(
         if not is_complete:
             row_warnings.append(_PARTIAL_CTP_WARNING)
 
-        if not is_urssaf_code_mappable(ctp):
+        # Phase 2: Rule lookup and activation check.
+        rule = get_rule(ctp)
+        if rule is None:
             breakdowns.append(UrssafCodeBreakdown(
                 ctp_code=ctp,
                 ctp_label=label,
                 mapping_status="non_rattache",
+                mapping_reason="no_verified_mapping_rule",
                 declared_amount=declared,
                 warnings=row_warnings,
             ))
             continue
 
-        individual_code = get_individual_code_for_ctp(ctp)
-        rows = s81_by_code.get(individual_code or "", [])
-
-        if not rows:
+        if not is_rule_active(rule):
             breakdowns.append(UrssafCodeBreakdown(
                 ctp_code=ctp,
                 ctp_label=label,
-                individual_code=individual_code,
-                mapping_status="manquant_individuel",
+                mapping_status="non_rattache",
+                mapping_reason="rule_not_enabled",
                 declared_amount=declared,
                 warnings=row_warnings,
             ))
             continue
 
-        # Aggregate by employee INDEX (stable per-block identity), not by
-        # display name — two distinct employees with identical visible names
-        # must not collapse into one row. Keep the display name alongside
-        # the index so the UI still gets the human-readable label.
-        by_employee: dict[int, tuple[str, Decimal, list[int]]] = {}
-        for emp_idx, emp_name, amt, lines in rows:
-            if emp_idx in by_employee:
-                prev_name, prev_amt, prev_lines = by_employee[emp_idx]
-                by_employee[emp_idx] = (prev_name, prev_amt + amt, prev_lines + lines)
+        # Phase 3: Top-level condition check (for guarded rules).
+        if rule.conditions.requires_insee_commune:
+            if not insee_codes_by_ctp.get(ctp):
+                breakdowns.append(UrssafCodeBreakdown(
+                    ctp_code=ctp,
+                    ctp_label=label,
+                    mapping_status="non_rattache",
+                    mapping_reason="missing_runtime_condition",
+                    declared_amount=declared,
+                    warnings=row_warnings,
+                ))
+                continue
+        if rule.conditions.threshold_rule is not None:
+            breakdowns.append(UrssafCodeBreakdown(
+                ctp_code=ctp,
+                ctp_label=label,
+                mapping_status="non_rattache",
+                mapping_reason="missing_runtime_condition",
+                declared_amount=declared,
+                warnings=row_warnings,
+            ))
+            continue
+
+        # Phase 4: S81 row scanning.
+        included_rows: list[tuple[int, str, Decimal, list[int], str, str]] = []
+        applied_codes: set[str] = set()
+        excluded_entries: list[dict[str, str]] = []
+
+        if rule.components is not None:
+            # Path A: Component-scoped matching.
+            declared_qualifiers = qualifiers_by_ctp.get(ctp, set())
+
+            # 4a-pre: Refuse if any S23 line for this CTP had an empty
+            # qualifier. The collapsed declared amount includes the
+            # empty-qualifier line, so evaluating against only the known
+            # qualifiers would compare a partial employee side against a
+            # full declared total — violating the "no partial guess" rule.
+            if ctps_with_empty_qualifier and ctp in ctps_with_empty_qualifier:
+                breakdowns.append(UrssafCodeBreakdown(
+                    ctp_code=ctp,
+                    ctp_label=label,
+                    mapping_status="non_rattache",
+                    mapping_reason="missing_declared_qualifier",
+                    declared_amount=declared,
+                    warnings=row_warnings,
+                ))
+                continue
+
+            # 4a: Check for unsupported declared qualifiers.
+            supported_qualifiers: set[str] = set()
+            for comp in rule.components:
+                supported_qualifiers |= comp.assiette_qualifiers_s23
+            unsupported = declared_qualifiers - supported_qualifiers
+            if unsupported:
+                breakdowns.append(UrssafCodeBreakdown(
+                    ctp_code=ctp,
+                    ctp_label=label,
+                    mapping_status="non_rattache",
+                    mapping_reason="unsupported_declared_qualifier",
+                    declared_amount=declared,
+                    warnings=row_warnings,
+                ))
+                continue
+
+            # 4b: Determine active components.
+            active_components = [
+                comp for comp in rule.components
+                if declared_qualifiers & comp.assiette_qualifiers_s23
+            ]
+            if not active_components:
+                breakdowns.append(UrssafCodeBreakdown(
+                    ctp_code=ctp,
+                    ctp_label=label,
+                    mapping_status="non_rattache",
+                    mapping_reason="missing_declared_qualifier",
+                    declared_amount=declared,
+                    warnings=row_warnings,
+                ))
+                continue
+
+            # 4c: Build combined acceptance set from active components.
+            acceptance_set: set[tuple[str, str]] = set()
+            for comp in active_components:
+                for code in comp.individual_codes_s81:
+                    for base in comp.base_codes_s78:
+                        acceptance_set.add((code, base))
+
+            # 4d: Scan S81 rows — row-level matching.
+            candidate_codes = {
+                code for comp in active_components
+                for code in comp.individual_codes_s81
+            }
+            for s81_code in candidate_codes:
+                for row in s81_by_code.get(s81_code, []):
+                    emp_idx, emp_name, amt, lines, base_code_78 = row
+                    if (s81_code, base_code_78) in acceptance_set:
+                        included_rows.append(
+                            (emp_idx, emp_name, amt, lines, base_code_78, s81_code)
+                        )
+                        applied_codes.add(s81_code)
+                    else:
+                        excluded_entries.append(
+                            {"code": s81_code, "reason": "wrong_base"}
+                        )
+        else:
+            # Path B: Flat matching (simple 1:1 rules).
+            for s81_code in rule.individual_codes_s81:
+                for row in s81_by_code.get(s81_code, []):
+                    emp_idx, emp_name, amt, lines, base_code_78 = row
+                    included_rows.append(
+                        (emp_idx, emp_name, amt, lines, base_code_78, s81_code)
+                    )
+                    applied_codes.add(s81_code)
+
+        # Phase 5: Aggregate and emit.
+        individual_code_display = (
+            rule.individual_codes_s81[0]
+            if len(rule.individual_codes_s81) == 1 and rule.components is None
+            else None
+        )
+
+        if not included_rows:
+            breakdowns.append(UrssafCodeBreakdown(
+                ctp_code=ctp,
+                ctp_label=label,
+                individual_code=individual_code_display,
+                mapping_status="manquant_individuel",
+                mapping_reason="matched_rule",
+                applied_individual_codes=sorted(applied_codes),
+                excluded_individual_codes=excluded_entries,
+                declared_amount=declared,
+                warnings=row_warnings,
+            ))
+            continue
+
+        # Aggregate by (employee_index, s81_code) — homonym-safe.
+        by_emp_code: dict[tuple[int, str], tuple[str, Decimal, list[int]]] = {}
+        for emp_idx, emp_name, amt, lines, _base, s81_code in included_rows:
+            key = (emp_idx, s81_code)
+            if key in by_emp_code:
+                prev_name, prev_amt, prev_lines = by_emp_code[key]
+                by_emp_code[key] = (prev_name, prev_amt + amt, prev_lines + lines)
             else:
-                by_employee[emp_idx] = (emp_name, amt, list(lines))
+                by_emp_code[key] = (emp_name, amt, list(lines))
 
         individual_total = sum(
-            (amt for _, amt, _ in by_employee.values()),
+            (amt for _, amt, _ in by_emp_code.values()),
             Decimal(0),
         )
-        # Sort for deterministic UI order: alphabetical by display name,
-        # ties broken by the stable employee index so homonyms appear in
-        # file order rather than randomly.
         employees = [
             EmployeeContributionBreakdown(
                 employee_name=name,
-                individual_code=individual_code,
+                individual_code=s81_code,
                 amount=amt,
-                record_lines=lines,
+                record_lines=rec_lines,
             )
-            for idx, (name, amt, lines) in sorted(
-                by_employee.items(),
-                key=lambda item: (item[1][0], item[0]),
+            for (idx, s81_code), (name, amt, rec_lines) in sorted(
+                by_emp_code.items(),
+                key=lambda item: (item[1][0], item[0][0]),
             )
         ]
 
@@ -489,8 +629,11 @@ def _build_urssaf_code_breakdowns(
         breakdowns.append(UrssafCodeBreakdown(
             ctp_code=ctp,
             ctp_label=label,
-            individual_code=individual_code,
+            individual_code=individual_code_display,
             mapping_status="rattachable",
+            mapping_reason="matched_rule",
+            applied_individual_codes=sorted(applied_codes),
+            excluded_individual_codes=excluded_entries,
             declared_amount=declared,
             individual_amount=individual_total,
             delta=delta,
@@ -555,12 +698,21 @@ def _compute_urssaf(
     n_recalculated_ctps = 0
     has_ctp = False
     non_calculable_ctp_count = 0
+    qualifiers_by_ctp: dict[str, set[str]] = {}
+    insee_codes_by_ctp: dict[str, set[str]] = {}
+    ctps_with_empty_qualifier: set[str] = set()
 
     if matching_s22_blocks:
         for s23 in all_s23_children:
             ctp_code = _find_value(s23.records, "S21.G00.23.001") or ""
             assiette_qual = _find_value(s23.records, "S21.G00.23.002") or ""
             insee_code = _find_value(s23.records, "S21.G00.23.006") or ""
+            if ctp_code and assiette_qual:
+                qualifiers_by_ctp.setdefault(ctp_code, set()).add(assiette_qual)
+            if ctp_code and not assiette_qual:
+                ctps_with_empty_qualifier.add(ctp_code)
+            if ctp_code and insee_code:
+                insee_codes_by_ctp.setdefault(ctp_code, set()).add(insee_code)
             key = f"{ctp_code}/{assiette_qual}/{insee_code}".rstrip("/")
             mapped_code, reference_label, short_label, reference_fmt, expected_rate = _select_reference_rate(
                 ctp_code,
@@ -715,21 +867,32 @@ def _compute_urssaf(
 
     # Slice C: per-CTP drill-down to employee-level amounts via Slice B mapping.
     s81_by_code, has_any_s78_s81 = _collect_s81_by_individual_code(employee_blocks)
-    urssaf_code_breakdowns = _build_urssaf_code_breakdowns(details, s81_by_code)
+    urssaf_code_breakdowns = _build_urssaf_code_breakdowns(
+        details, s81_by_code, qualifiers_by_ctp, insee_codes_by_ctp,
+        ctps_with_empty_qualifier,
+    )
 
-    # Warn when individual data is present in the file but some CTPs have
-    # no reliable mapping to S81.001 — surfaces the "default-deny" gap so
-    # users know why drill-down is absent for those codes.
-    if has_any_s78_s81 and any(
-        b.mapping_status == "non_rattache" for b in urssaf_code_breakdowns
-    ):
-        unmapped = sorted(
-            {b.ctp_code for b in urssaf_code_breakdowns if b.mapping_status == "non_rattache"}
-        )
-        warnings.append(
-            "Données individuelles (S78/S81) présentes dans la DSN mais "
-            f"sans mapping fiable pour : {', '.join(unmapped)}."
-        )
+    # Warn when individual data is present in the file but some CTPs cannot
+    # be drilled down. The warning text reflects the actual reason so users
+    # know what is missing (no rule, rule blocked, incomplete declared side).
+    if has_any_s78_s81:
+        _reason_labels = {
+            "no_verified_mapping_rule": "sans mapping fiable",
+            "rule_not_enabled": "règle en attente de validation experte",
+            "missing_runtime_condition": "conditions de rattachement non réunies",
+            "missing_declared_qualifier": "qualifiant d'assiette manquant côté déclaratif",
+            "unsupported_declared_qualifier": "variante d'assiette non prise en charge",
+        }
+        for reason, reason_label in _reason_labels.items():
+            ctps = sorted(
+                b.ctp_code for b in urssaf_code_breakdowns
+                if b.mapping_status == "non_rattache" and b.mapping_reason == reason
+            )
+            if ctps:
+                warnings.append(
+                    f"Données individuelles (S78/S81) présentes — "
+                    f"{reason_label} pour : {', '.join(ctps)}."
+                )
 
     return ContributionComparisonItem(
         family="urssaf",

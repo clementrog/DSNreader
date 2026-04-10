@@ -1393,8 +1393,14 @@
           + '</span>';
         montantTitle = ' title="Montant DSN\u00a0: ' + escapeHtml(formatAmount(detail.declared_amount))
           + ' | Montant recalcul\u00e9\u00a0: ' + escapeHtml(formatAmount(detail.computed_amount)) + '"';
-      } else {
+      } else if (detail.declared_amount != null) {
         montantHtml = escapeHtml(formatAmount(detail.declared_amount));
+      } else if (detail.computed_amount != null) {
+        montantHtml = escapeHtml(formatAmount(detail.computed_amount))
+          + ' <span class="badge-recalc">Recalcul\u00e9</span>';
+        montantTitle = ' title="Montant absent de la DSN, recalcul\u00e9 \u00e0 partir de l\u2019assiette et du taux"';
+      } else {
+        montantHtml = escapeHtml(formatAmount(null));
       }
 
       var deltaHtml = 'NC';
@@ -1441,13 +1447,34 @@
     var status = breakdown.mapping_status || 'non_rattache';
 
     if (status === 'non_rattache') {
+      var reason = breakdown.mapping_reason || 'no_verified_mapping_rule';
+      var reasonText;
+      if (reason === 'rule_not_enabled') {
+        reasonText = '<strong>R\u00e8gle en attente de validation.</strong> '
+          + 'Une r\u00e8gle de rattachement existe pour ce CTP mais n\u2019est pas encore '
+          + 'valid\u00e9e pour un usage en production.';
+      } else if (reason === 'missing_runtime_condition') {
+        reasonText = '<strong>Condition non remplie.</strong> '
+          + 'Ce CTP est reconnu mais les conditions de rattachement ne sont pas '
+          + 'r\u00e9unies dans cette DSN.';
+      } else if (reason === 'unsupported_declared_qualifier') {
+        reasonText = '<strong>Variante d\u2019assiette non prise en charge.</strong> '
+          + 'Ce CTP est reconnu mais au moins une variante d\u2019assiette d\u00e9clar\u00e9e '
+          + 'n\u2019est pas encore prise en charge.';
+      } else if (reason === 'missing_declared_qualifier') {
+        reasonText = '<strong>Qualifiant d\u2019assiette manquant.</strong> '
+          + 'Ce CTP est reconnu mais aucun qualifiant d\u2019assiette exploitable '
+          + 'n\u2019a \u00e9t\u00e9 trouv\u00e9 dans cette DSN.';
+      } else {
+        reasonText = '<strong>CTP non rattach\u00e9.</strong> Aucun lien fiable n\u2019est d\u00e9fini '
+          + 'entre ce code et un code de cotisation individuelle (S21.G00.81.001). '
+          + 'La ventilation par salari\u00e9 n\u2019est donc pas affich\u00e9e pour respecter '
+          + 'la r\u00e8gle de rattachement strict.';
+      }
       return '<div class="urssaf-sub-section">'
         + '<h5 class="urssaf-sub-section__title">Salari\u00e9s</h5>'
         + '<div class="urssaf-ctp-empty-message urssaf-ctp-empty-message--non-rattache">'
-        + '<strong>CTP non rattach\u00e9.</strong> Aucun lien fiable n\u2019est d\u00e9fini '
-        + 'entre ce code et un code de cotisation individuelle (S21.G00.81.001). '
-        + 'La ventilation par salari\u00e9 n\u2019est donc pas affich\u00e9e pour respecter '
-        + 'la r\u00e8gle de rattachement strict.'
+        + reasonText
         + '</div>'
         + '</div>';
     }
@@ -1490,8 +1517,12 @@
         + '</tr>';
     }).join("");
 
+    var appliedCodes = Array.isArray(breakdown.applied_individual_codes) && breakdown.applied_individual_codes.length > 0
+      ? ' &mdash; codes S81 appliqu\u00e9s\u00a0: ' + breakdown.applied_individual_codes.map(escapeHtml).join(', ')
+      : '';
+
     return '<div class="urssaf-sub-section">'
-      + '<h5 class="urssaf-sub-section__title">Salari\u00e9s (' + employees.length + ')</h5>'
+      + '<h5 class="urssaf-sub-section__title">Salari\u00e9s (' + employees.length + ')' + appliedCodes + '</h5>'
       + '<table class="data-table urssaf-sub-table urssaf-employees-table">'
       + '<thead><tr>'
       + '<th>Salari\u00e9</th><th>Code S81</th><th>Montant</th><th>Lignes DSN</th>'

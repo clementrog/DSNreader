@@ -214,6 +214,9 @@ class UrssafCodeBreakdown(BaseModel):
     ctp_label: str | None = None
     individual_code: str | None = None  # Mapped S21.G00.81.001 code, when known
     mapping_status: str = "non_rattache"
+    mapping_reason: str | None = None
+    applied_individual_codes: list[str] = Field(default_factory=list)
+    excluded_individual_codes: list[dict] = Field(default_factory=list)
     declared_amount: Decimal | None = None  # Sum of CTP amounts across assiette variants
     individual_amount: Decimal | None = None  # Sum of S81.004 across employees
     delta: Decimal | None = None  # declared_amount - individual_amount

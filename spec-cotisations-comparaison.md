@@ -504,20 +504,30 @@ La liste canonique des statuts autorisés est exposée par le module `dsn_extrac
 
 #### Source de vérité code
 
-- Table : `dsn_extractor/data/urssaf_individual_mapping.tsv`
-- Chargeur + API : `dsn_extractor/urssaf_individual_mapping.py`
-  - `load_mapping() -> dict[str, UrssafIndividualMapping]`
-  - `is_urssaf_code_mappable(ctp_code) -> bool`
-  - `get_individual_code_for_ctp(ctp_code) -> str | None`
+- **Source canonique** : `dsn_extractor/urssaf_mapping_rules.py`
+  - `get_rule(ctp_code) -> UrssafMappingRule | None`
+  - `is_rule_active(rule) -> bool`
+  - `all_rules() -> dict[str, UrssafMappingRule]`
+- **Shim backward-compatible** : `dsn_extractor/urssaf_individual_mapping.py` — délègue au module canonique, conserve `URSSAF_DETAIL_STATUSES`
+- **Ancien TSV** : `dsn_extractor/data/urssaf_individual_mapping.tsv` — artefact historique, plus chargé
 - Tests : `tests/test_urssaf_mapping.py`
 
-Le module est volontairement découplé de `_compute_urssaf`. Slice B est un "gate" documentaire + scaffolding : la logique de reconcilation individuelle (branchement dans `_compute_urssaf`) est livrée en Slice C.
+Modèle d'activation : `enabled` et `guarded` sont actifs à l'exécution ; `expert_pending` et `excluded` sont déclarés dans les données mais non évalués.
 
-#### Table de mapping verrouillée (avril 2026)
+#### Table de mapping V1 (avril 2026)
 
-| CTP | Libellé | Code S81.001 | OPS | Source normative | Statut |
-|-----|---------|--------------|-----|------------------|--------|
-| 027 | CONTRIBUTION AU DIALOGUE SOCIAL | 100 | urssaf_siret | publicodes 13.1 L235-247 | rattachable |
+| CTP | Libellé | Cardinalité | Codes S81.001 | Statut | Condition |
+|-----|---------|-------------|---------------|--------|-----------|
+| 100 | RG CAS GENERAL | 1:N | 045,068,074,075,076 | enabled | component-scoped (920→03, 921→02) |
+| 959 | CFP ENTREPRISE < 11 SALARIES | 1:1 | 128 | enabled | — |
+| 983 | CFP INTERMITTENTS DU SPECTACLE | 1:1 | 128 | enabled | — |
+| 987 | CONTRIBUTION CPF CDD | 1:1 | 129 | enabled | — |
+| 992 | TA PRINCIPALE HORS ALSACE MOSELLE | 1:1 | 130 | enabled | — |
+| 993 | TA ALSACE MOSELLE | 1:1 | 130 | enabled | — |
+| 027 | CONTRIBUTION AU DIALOGUE SOCIAL | 1:1 | 100 | expert_pending | en attente validation |
+| 900 | VERSEMENT MOBILITE | 1:1 | 081 | expert_pending | commune-scoped matching requis |
+| 901 | VERSEMENT MOBILITE ADDITIONNEL | 1:1 | 082 | expert_pending | commune-scoped matching requis |
+| 971 | CFP ENTREPRISE >= 11 SALARIES | 1:1 | 128 | expert_pending | seuil SMIC requis |
 
 #### Journal des décisions
 
