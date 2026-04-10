@@ -42,6 +42,14 @@ class UrssafMappingConditions:
 
     requires_insee_commune: bool = False
     threshold_rule: str | None = None
+    # Employee-level contract nature filtering (S21.G00.40.007).
+    # requires_contract_nature: employee must have at least one of these values.
+    # excludes_contract_nature: employee must NOT have any of these values.
+    requires_contract_nature: frozenset[str] | None = None
+    excludes_contract_nature: frozenset[str] | None = None
+    # Sign-based gating on aggregated declared amount.
+    # "negative" → CTP amount must be < 0; "positive" → must be > 0.
+    sign_condition: str | None = None
     notes: str | None = None
 
 
@@ -54,6 +62,7 @@ class UrssafMappingRule:
     cardinality: str  # "1:1" or "1:N"
     individual_codes_s81: tuple[str, ...]
     components: tuple[UrssafMappingComponent, ...] | None = None
+    base_codes_s78: frozenset[str] | None = None  # For flat rules needing base code filter
     conditions: UrssafMappingConditions = UrssafMappingConditions()
     ops_rule: str = "urssaf_siret"
     confidence: str = "high"
@@ -68,6 +77,7 @@ class UrssafMappingRule:
 _VALID_PRODUCT_STATUSES = frozenset({"enabled", "guarded", "expert_pending", "excluded"})
 _VALID_CARDINALITIES = frozenset({"1:1", "1:N"})
 _ACTIVE_STATUSES = frozenset({"enabled", "guarded"})
+_VALID_SIGN_CONDITIONS = frozenset({"negative", "positive"})
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +86,8 @@ _ACTIVE_STATUSES = frozenset({"enabled", "guarded"})
 
 _RULES: dict[str, UrssafMappingRule] = {
     # ---- CTP 100: Cotisations sociales RG (1:N, component-scoped) --------
+    # Active only for employees who are NOT apprentice (02) and NOT mandataire (80).
+    # Apprentice employees use CTP 726; mandataire employees use CTP 863.
     "100": UrssafMappingRule(
         ctp_code="100",
         ctp_label="RG CAS GENERAL",
@@ -92,6 +104,9 @@ _RULES: dict[str, UrssafMappingRule] = {
                 base_codes_s78=frozenset({"02"}),
                 individual_codes_s81=("076",),
             ),
+        ),
+        conditions=UrssafMappingConditions(
+            excludes_contract_nature=frozenset({"02", "80"}),
         ),
         confidence="high",
         product_status="enabled",
@@ -150,14 +165,200 @@ _RULES: dict[str, UrssafMappingRule] = {
         product_status="enabled",
         source_refs=("publicodes 13.1",),
     ),
-    # ---- CTP 027: Dialogue social — expert_pending -----------------------
+    # ---- CTP 236: FNAL taux plein (1:1) -----------------------------------
+    "236": UrssafMappingRule(
+        ctp_code="236",
+        ctp_label="FNAL TOTALITE",
+        cardinality="1:1",
+        individual_codes_s81=("049",),
+        base_codes_s78=frozenset({"02"}),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 260: CSG CRDS régime général (1:N, sum 072+079) --------------
+    "260": UrssafMappingRule(
+        ctp_code="260",
+        ctp_label="CSG CRDS REGIME GENERAL",
+        cardinality="1:N",
+        individual_codes_s81=("072", "079"),
+        base_codes_s78=frozenset({"04"}),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 332: FNAL plafonné (1:1) -------------------------------------
+    "332": UrssafMappingRule(
+        ctp_code="332",
+        ctp_label="FNAL PLAFONNE",
+        cardinality="1:1",
+        individual_codes_s81=("049",),
+        base_codes_s78=frozenset({"02"}),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 423: Contrib assurance chômage apprentis (1:1) ---------------
+    "423": UrssafMappingRule(
+        ctp_code="423",
+        ctp_label="CONTRIB ASSURANCE CHOMAGE APPREN 87 U2",
+        cardinality="1:1",
+        individual_codes_s81=("040",),
+        base_codes_s78=frozenset({"07"}),
+        conditions=UrssafMappingConditions(
+            requires_contract_nature=frozenset({"02"}),
+        ),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 635: Complément cotisation maladie (1:1) --------------------
+    "635": UrssafMappingRule(
+        ctp_code="635",
+        ctp_label="COMPLEMENT COTISATION MALADIE",
+        cardinality="1:1",
+        individual_codes_s81=("907",),
+        base_codes_s78=frozenset({"03"}),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 668: Réduction générale étendue (sign-gated, negative) ----
+    "668": UrssafMappingRule(
+        ctp_code="668",
+        ctp_label="REDUCTION GENERALE ETENDUE U2",
+        cardinality="1:1",
+        individual_codes_s81=("018",),
+        base_codes_s78=frozenset({"03"}),
+        conditions=UrssafMappingConditions(
+            sign_condition="negative",
+        ),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 669: Régul réduction générale étendue (sign-gated, positive)
+    "669": UrssafMappingRule(
+        ctp_code="669",
+        ctp_label="REGUL REDUCTION GENERALE ETENDUE U2",
+        cardinality="1:1",
+        individual_codes_s81=("018",),
+        base_codes_s78=frozenset({"03"}),
+        conditions=UrssafMappingConditions(
+            sign_condition="positive",
+        ),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 726: Apprentis secteur privé (1:N, component-scoped) ---------
+    # Same component structure as CTP 100 but restricted to apprentice employees.
+    "726": UrssafMappingRule(
+        ctp_code="726",
+        ctp_label="APPRENTIS SECT PRIVE INF SEUIL",
+        cardinality="1:N",
+        individual_codes_s81=("045", "068", "074", "075", "076"),
+        components=(
+            UrssafMappingComponent(
+                assiette_qualifiers_s23=frozenset({"920"}),
+                base_codes_s78=frozenset({"03"}),
+                individual_codes_s81=("045", "068", "074", "075", "076"),
+            ),
+            UrssafMappingComponent(
+                assiette_qualifiers_s23=frozenset({"921"}),
+                base_codes_s78=frozenset({"02"}),
+                individual_codes_s81=("076",),
+            ),
+        ),
+        conditions=UrssafMappingConditions(
+            requires_contract_nature=frozenset({"02"}),
+        ),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 772: Contributions assurance chômage (1:1) -------------------
+    "772": UrssafMappingRule(
+        ctp_code="772",
+        ctp_label="CONTRIBUTIONS ASSURANCE CHOMAGE U2",
+        cardinality="1:1",
+        individual_codes_s81=("040",),
+        base_codes_s78=frozenset({"07"}),
+        conditions=UrssafMappingConditions(
+            excludes_contract_nature=frozenset({"02"}),
+        ),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 863: RG mandataires sociaux (1:N, component-scoped) --------
+    # Same component structure as CTP 100 but restricted to mandataire employees.
+    "863": UrssafMappingRule(
+        ctp_code="863",
+        ctp_label="RG MANDATAIRES SOCIAUX",
+        cardinality="1:N",
+        individual_codes_s81=("045", "068", "074", "075", "076"),
+        components=(
+            UrssafMappingComponent(
+                assiette_qualifiers_s23=frozenset({"920"}),
+                base_codes_s78=frozenset({"03"}),
+                individual_codes_s81=("045", "068", "074", "075", "076"),
+            ),
+            UrssafMappingComponent(
+                assiette_qualifiers_s23=frozenset({"921"}),
+                base_codes_s78=frozenset({"02"}),
+                individual_codes_s81=("076",),
+            ),
+        ),
+        conditions=UrssafMappingConditions(
+            requires_contract_nature=frozenset({"80"}),
+        ),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 937: Cotisations AGS cas général (1:1) -----------------------
+    "937": UrssafMappingRule(
+        ctp_code="937",
+        ctp_label="COTISATIONS AGS CAS GENERAL U2",
+        cardinality="1:1",
+        individual_codes_s81=("048",),
+        base_codes_s78=frozenset({"07"}),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 003: Réduction salariale heures sup (1:1) --------------------
+    "003": UrssafMappingRule(
+        ctp_code="003",
+        ctp_label="REDUCTION SALARIALE HEURES SUP",
+        cardinality="1:1",
+        individual_codes_s81=("114",),
+        base_codes_s78=frozenset({"03"}),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 004: Déduction patronale heures sup (1:1) --------------------
+    "004": UrssafMappingRule(
+        ctp_code="004",
+        ctp_label="DEDUCTION PATRONALE HEURES SUP",
+        cardinality="1:1",
+        individual_codes_s81=("021",),
+        base_codes_s78=frozenset({"03"}),
+        confidence="high",
+        product_status="enabled",
+        source_refs=("validation Thomas",),
+    ),
+    # ---- CTP 027: Dialogue social (validated) -----------------------------
     "027": UrssafMappingRule(
         ctp_code="027",
         ctp_label="CONTRIBUTION AU DIALOGUE SOCIAL",
         cardinality="1:1",
         individual_codes_s81=("100",),
+        base_codes_s78=frozenset({"03"}),
         confidence="high",
-        product_status="expert_pending",
+        product_status="enabled",
         source_refs=("publicodes 13.1 L235-247",),
     ),
     # ---- CTP 900: Versement mobilité — expert_pending --------------------
@@ -242,6 +443,17 @@ def _validate_rules(rules: dict[str, UrssafMappingRule]) -> None:
                     f"Rule {rule.ctp_code}: guarded status requires "
                     f"at least one non-trivial condition"
                 )
+        if rule.conditions.sign_condition is not None:
+            if rule.conditions.sign_condition not in _VALID_SIGN_CONDITIONS:
+                raise RuntimeError(
+                    f"Rule {rule.ctp_code}: invalid sign_condition "
+                    f"{rule.conditions.sign_condition!r}"
+                )
+        if rule.base_codes_s78 is not None and rule.components is not None:
+            raise RuntimeError(
+                f"Rule {rule.ctp_code}: base_codes_s78 and components "
+                f"are mutually exclusive"
+            )
         if rule.components is not None:
             component_codes: set[str] = set()
             for comp in rule.components:

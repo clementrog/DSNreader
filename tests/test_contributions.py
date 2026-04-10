@@ -696,14 +696,17 @@ class TestUrssafIndividualDrilldown:
     """
 
     @staticmethod
-    def _employee(*extra_records: DSNRecord, nom: str = "DUPONT", prenom: str = "Jean", empno: str = "12345") -> EmployeeBlock:
+    def _employee(*extra_records: DSNRecord, nom: str = "DUPONT", prenom: str = "Jean",
+                  empno: str = "12345", contract_nature: str | None = None) -> EmployeeBlock:
         base_line = 10
-        return _emp(
+        base_records = [
             _r("S21.G00.30.001", empno, base_line),
             _r("S21.G00.30.002", nom, base_line + 1),
             _r("S21.G00.30.004", prenom, base_line + 2),
-            *extra_records,
-        )
+        ]
+        if contract_nature:
+            base_records.append(_r("S21.G00.40.007", contract_nature, base_line + 3))
+        return _emp(*base_records, *extra_records)
 
     @staticmethod
     def _s78_with_s81(individual_code: str, amount: str, base_code: str = "30", start_line: int = 20) -> list[DSNRecord]:
@@ -959,6 +962,7 @@ class TestUrssafIndividualDrilldown:
         emp = self._employee(
             *self._s78_with_s81("045", "100.00", base_code="03", start_line=20),
             *self._s78_with_s81("076", "50.00", base_code="02", start_line=30),
+            contract_nature="01",
         )
         urssaf = self._get_urssaf(self._est_with_ctp_100("150.00", assiette="920", employees=[emp]))
 
@@ -972,6 +976,7 @@ class TestUrssafIndividualDrilldown:
         emp = self._employee(
             *self._s78_with_s81("045", "100.00", base_code="03", start_line=20),
             *self._s78_with_s81("076", "50.00", base_code="02", start_line=30),
+            contract_nature="01",
         )
         urssaf = self._get_urssaf(self._est_with_ctp_100("50.00", assiette="921", employees=[emp]))
 
@@ -985,6 +990,7 @@ class TestUrssafIndividualDrilldown:
         emp = self._employee(
             *self._s78_with_s81("045", "100.00", base_code="03", start_line=20),
             *self._s78_with_s81("076", "50.00", base_code="02", start_line=30),
+            contract_nature="01",
         )
         est = _est(
             _r("S21.G00.20.001", "78861779300013", 1),
@@ -1010,6 +1016,7 @@ class TestUrssafIndividualDrilldown:
         emp = self._employee(
             *self._s78_with_s81("076", "100.00", base_code="03", start_line=20),
             *self._s78_with_s81("076", "50.00", base_code="02", start_line=30),
+            contract_nature="01",
         )
         est = _est(
             _r("S21.G00.20.001", "78861779300013", 1),
@@ -1034,6 +1041,7 @@ class TestUrssafIndividualDrilldown:
         """076 under base 03 must be accepted, not false-excluded."""
         emp = self._employee(
             *self._s78_with_s81("076", "100.00", base_code="03", start_line=20),
+            contract_nature="01",
         )
         est = _est(
             _r("S21.G00.20.001", "78861779300013", 1),
@@ -1059,6 +1067,7 @@ class TestUrssafIndividualDrilldown:
         """076 under base 02 must be accepted, not false-excluded."""
         emp = self._employee(
             *self._s78_with_s81("076", "50.00", base_code="02", start_line=20),
+            contract_nature="01",
         )
         est = _est(
             _r("S21.G00.20.001", "78861779300013", 1),
@@ -1116,7 +1125,7 @@ class TestUrssafIndividualDrilldown:
         assert b.mapping_reason == "unsupported_declared_qualifier"
 
     def test_ctp_100_wrong_base_excluded_with_audit_trail(self):
-        emp = self._employee(*self._s78_with_s81("045", "100.00", base_code="30"))
+        emp = self._employee(*self._s78_with_s81("045", "100.00", base_code="30"), contract_nature="01")
         urssaf = self._get_urssaf(self._est_with_ctp_100("100.00", assiette="920", employees=[emp]))
 
         b = urssaf.urssaf_code_breakdowns[0]
@@ -1170,7 +1179,8 @@ class TestUrssafIndividualDrilldown:
 
     # ---- Expert-pending rules --------------------------------------------
 
-    def test_ctp_027_expert_pending(self):
+    def test_ctp_027_enabled_manquant_individuel(self):
+        """CTP 027 is now enabled — without employee S81 data, manquant_individuel."""
         est = _est(
             _r("S21.G00.20.001", "78861779300013", 1),
             _r("S21.G00.20.005", "48.00", 2),
@@ -1183,8 +1193,30 @@ class TestUrssafIndividualDrilldown:
         urssaf = self._get_urssaf(est)
 
         b = urssaf.urssaf_code_breakdowns[0]
-        assert b.mapping_status == "non_rattache"
-        assert b.mapping_reason == "rule_not_enabled"
+        assert b.mapping_status == "manquant_individuel"
+        assert b.mapping_reason == "matched_rule"
+
+    def test_ctp_027_enabled_rattachable(self):
+        """CTP 027 with matching S81 employee data → rattachable."""
+        emp = self._employee(
+            *self._s78_with_s81("100", "48.00", base_code="03"),
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "48.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "48.00", 4),
+            _r("S21.G00.23.001", "027", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "48.00", 7),
+            employees=[emp],
+        )
+        urssaf = self._get_urssaf(est)
+
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "rattachable"
+        assert b.individual_amount == Decimal("48.00")
+        assert b.individual_code == "100"
 
     def test_ctp_900_expert_pending(self):
         emp = self._employee(*self._s78_with_s81("081", "50.00"))
@@ -1245,11 +1277,11 @@ class TestUrssafIndividualDrilldown:
         """Two employees with same name stay as separate rows."""
         emp1 = self._employee(
             *self._s78_with_s81("045", "70.00", base_code="03", start_line=20),
-            nom="DUPONT", prenom="Jean", empno="1",
+            nom="DUPONT", prenom="Jean", empno="1", contract_nature="01",
         )
         emp2 = self._employee(
             *self._s78_with_s81("045", "30.00", base_code="03", start_line=30),
-            nom="DUPONT", prenom="Jean", empno="2",
+            nom="DUPONT", prenom="Jean", empno="2", contract_nature="01",
         )
         urssaf = self._get_urssaf(self._est_with_ctp_100("100.00", assiette="920", employees=[emp1, emp2]))
 
@@ -1386,6 +1418,453 @@ class TestUrssafIndividualDrilldown:
         assert b.employees[0].amount == Decimal("40.00")
         # Warning on the breakdown row explains the partial collapse.
         assert any("Sous-total CTP non affiché" in w for w in b.warnings)
+
+
+# ---------------------------------------------------------------------------
+# New validated mapping runtime tests (V1.1)
+# ---------------------------------------------------------------------------
+
+
+class TestNewMappingRuntime:
+    """Runtime tests for the validated CTP→S81 mappings added in V1.1."""
+
+    @staticmethod
+    def _employee(*extra_records, nom="DUPONT", prenom="Jean", empno="1",
+                  contract_nature=None):
+        base_line = 10
+        records = [
+            _r("S21.G00.30.001", empno, base_line),
+            _r("S21.G00.30.002", nom, base_line + 1),
+            _r("S21.G00.30.004", prenom, base_line + 2),
+        ]
+        if contract_nature:
+            records.append(_r("S21.G00.40.007", contract_nature, base_line + 3))
+        records.extend(extra_records)
+        return _emp(*records)
+
+    @staticmethod
+    def _s78_with_s81(individual_code, amount, base_code="30", start_line=20):
+        return [
+            _r("S21.G00.78.001", base_code, start_line),
+            _r("S21.G00.78.004", "1000.00", start_line + 1),
+            _r("S21.G00.81.001", individual_code, start_line + 2),
+            _r("S21.G00.81.004", amount, start_line + 3),
+        ]
+
+    def _est_with_ctp(self, ctp_code, declared, assiette="920",
+                      employees=None):
+        return _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", declared, 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", declared, 4),
+            _r("S21.G00.23.001", ctp_code, 5),
+            _r("S21.G00.23.002", assiette, 6),
+            _r("S21.G00.23.005", declared, 7),
+            employees=employees,
+        )
+
+    def _est_with_two_assiettes(self, ctp_code, declared_d, declared_p,
+                                employees=None):
+        total = str(Decimal(declared_d) + Decimal(declared_p))
+        return _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", total, 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", total, 4),
+            _r("S21.G00.23.001", ctp_code, 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", declared_d, 7),
+            _r("S21.G00.23.001", ctp_code, 8),
+            _r("S21.G00.23.002", "921", 9),
+            _r("S21.G00.23.005", declared_p, 10),
+            employees=employees,
+        )
+
+    def _get_urssaf(self, est):
+        from dsn_extractor.contributions import compute_contribution_comparisons
+        cc = compute_contribution_comparisons(est)
+        return [i for i in cc.items if i.family == "urssaf"][0]
+
+    # ---- CTP 332 → 049 (02) -----------------------------------------------
+
+    def test_ctp_332_rattachable(self):
+        emp = self._employee(
+            *self._s78_with_s81("049", "48.00", base_code="02"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("332", "48.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "332"
+        assert b.mapping_status == "rattachable"
+        assert b.individual_amount == Decimal("48.00")
+
+    def test_ctp_332_wrong_base_excluded(self):
+        emp = self._employee(
+            *self._s78_with_s81("049", "48.00", base_code="03"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("332", "48.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "manquant_individuel"
+
+    # ---- CTP 236 → 049 (02) -----------------------------------------------
+
+    def test_ctp_236_rattachable(self):
+        emp = self._employee(
+            *self._s78_with_s81("049", "30.00", base_code="02"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("236", "30.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "236"
+        assert b.mapping_status == "rattachable"
+        assert b.individual_amount == Decimal("30.00")
+
+    # ---- CTP 260 → 072 + 079 (04) sum both --------------------------------
+
+    def test_ctp_260_sums_072_and_079(self):
+        emp = self._employee(
+            *self._s78_with_s81("072", "60.00", base_code="04", start_line=20),
+            *self._s78_with_s81("079", "40.00", base_code="04", start_line=30),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("260", "100.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "260"
+        assert b.mapping_status == "rattachable"
+        assert b.individual_amount == Decimal("100.00")
+        assert set(b.applied_individual_codes) == {"072", "079"}
+
+    def test_ctp_260_wrong_base_excluded(self):
+        emp = self._employee(
+            *self._s78_with_s81("072", "60.00", base_code="03", start_line=20),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("260", "60.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "manquant_individuel"
+
+    # ---- CTP 423 → 040 (07) if apprentice ----------------------------------
+
+    def test_ctp_423_apprentice_rattachable(self):
+        emp = self._employee(
+            *self._s78_with_s81("040", "50.00", base_code="07"),
+            contract_nature="02",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("423", "50.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "423"
+        assert b.mapping_status == "rattachable"
+
+    def test_ctp_423_non_apprentice_excluded(self):
+        emp = self._employee(
+            *self._s78_with_s81("040", "50.00", base_code="07"),
+            contract_nature="01",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("423", "50.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "manquant_individuel"
+
+    # ---- CTP 772 → 040 (07) if NOT apprentice ------------------------------
+
+    def test_ctp_772_non_apprentice_rattachable(self):
+        emp = self._employee(
+            *self._s78_with_s81("040", "50.00", base_code="07"),
+            contract_nature="01",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("772", "50.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "772"
+        assert b.mapping_status == "rattachable"
+
+    def test_ctp_772_apprentice_excluded(self):
+        emp = self._employee(
+            *self._s78_with_s81("040", "50.00", base_code="07"),
+            contract_nature="02",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("772", "50.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "manquant_individuel"
+
+    # ---- Missing employee status context safe refusal -----------------------
+
+    def test_ctp_423_missing_status_safe_refusal(self):
+        """CTP 423 requires apprentice but employee has no S21.G00.40.007 → safe refuse."""
+        emp = self._employee(
+            *self._s78_with_s81("040", "50.00", base_code="07"),
+            # No contract_nature → S21.G00.40.007 absent
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("423", "50.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "non_rattache"
+        assert b.mapping_reason == "missing_employee_status_context"
+
+    def test_ctp_423_mixed_status_and_missing_refuses(self):
+        """One apprentice + one missing-status employee → refuse, not partial total."""
+        emp_ok = self._employee(
+            *self._s78_with_s81("040", "50.00", base_code="07", start_line=20),
+            nom="APPRENTI", prenom="Bob", empno="1", contract_nature="02",
+        )
+        emp_missing = self._employee(
+            *self._s78_with_s81("040", "30.00", base_code="07", start_line=40),
+            nom="INCONNU", prenom="Alice", empno="2",
+            # No contract_nature
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("423", "80.00",
+                                                      employees=[emp_ok, emp_missing]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "non_rattache"
+        assert b.mapping_reason == "missing_employee_status_context"
+
+    def test_ctp_772_missing_status_safe_refusal(self):
+        """CTP 772 excludes apprentice but employee has no S21.G00.40.007 → safe refuse."""
+        emp = self._employee(
+            *self._s78_with_s81("040", "50.00", base_code="07"),
+            # No contract_nature → S21.G00.40.007 absent
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("772", "50.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "non_rattache"
+        assert b.mapping_reason == "missing_employee_status_context"
+
+    # ---- CTP 726 D/P → apprentice-only split --------------------------------
+
+    def test_ctp_726_apprentice_deplafonne(self):
+        emp = self._employee(
+            *self._s78_with_s81("045", "100.00", base_code="03"),
+            contract_nature="02",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("726", "100.00", assiette="920", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "rattachable"
+        assert "045" in b.applied_individual_codes
+
+    def test_ctp_726_apprentice_plafonne(self):
+        emp = self._employee(
+            *self._s78_with_s81("076", "50.00", base_code="02"),
+            contract_nature="02",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("726", "50.00", assiette="921", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "rattachable"
+        assert "076" in b.applied_individual_codes
+
+    def test_ctp_726_non_apprentice_excluded(self):
+        """Non-apprentice employee should not match CTP 726."""
+        emp = self._employee(
+            *self._s78_with_s81("045", "100.00", base_code="03"),
+            contract_nature="01",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("726", "100.00", assiette="920", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "manquant_individuel"
+
+    # ---- CTP 863 D/P → mandataire-only split --------------------------------
+
+    def test_ctp_863_mandataire_deplafonne(self):
+        emp = self._employee(
+            *self._s78_with_s81("045", "100.00", base_code="03"),
+            contract_nature="80",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("863", "100.00", assiette="920", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "rattachable"
+        assert "045" in b.applied_individual_codes
+
+    def test_ctp_863_mandataire_plafonne(self):
+        emp = self._employee(
+            *self._s78_with_s81("076", "50.00", base_code="02"),
+            contract_nature="80",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("863", "50.00", assiette="921", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "rattachable"
+        assert "076" in b.applied_individual_codes
+
+    def test_ctp_863_non_mandataire_excluded(self):
+        """Non-mandataire employee should not match CTP 863."""
+        emp = self._employee(
+            *self._s78_with_s81("045", "100.00", base_code="03"),
+            contract_nature="01",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("863", "100.00", assiette="920", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.mapping_status == "manquant_individuel"
+
+    # ---- CTP 635 → 907 (03) -----------------------------------------------
+
+    def test_ctp_635_maps_to_907(self):
+        emp = self._employee(
+            *self._s78_with_s81("907", "48.00", base_code="03"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("635", "48.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "635"
+        assert b.mapping_status == "rattachable"
+        assert b.individual_amount == Decimal("48.00")
+
+    # ---- CTP 003 → 114 (03) -----------------------------------------------
+
+    def test_ctp_003_maps_to_114(self):
+        emp = self._employee(
+            *self._s78_with_s81("114", "20.00", base_code="03"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("003", "20.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "003"
+        assert b.mapping_status == "rattachable"
+
+    # ---- CTP 004 → 021 (03) -----------------------------------------------
+
+    def test_ctp_004_maps_to_021(self):
+        emp = self._employee(
+            *self._s78_with_s81("021", "30.00", base_code="03"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("004", "30.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "004"
+        assert b.mapping_status == "rattachable"
+
+    # ---- CTP 668 → 018 (03) sign=negative ----------------------------------
+
+    def test_ctp_668_negative_amount_rattachable(self):
+        emp = self._employee(
+            *self._s78_with_s81("018", "-120.00", base_code="03"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("668", "-120.00", employees=[emp]))
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "668"][0]
+        assert b.mapping_status == "rattachable"
+        assert b.individual_amount == Decimal("-120.00")
+
+    def test_ctp_668_positive_amount_refused(self):
+        emp = self._employee(
+            *self._s78_with_s81("018", "120.00", base_code="03"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("668", "120.00", employees=[emp]))
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "668"][0]
+        assert b.mapping_status == "non_rattache"
+        assert b.mapping_reason == "sign_condition_not_met"
+
+    def test_ctp_668_zero_amount_refused(self):
+        emp = self._employee(
+            *self._s78_with_s81("018", "0.00", base_code="03"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("668", "0.00", employees=[emp]))
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "668"][0]
+        assert b.mapping_status == "non_rattache"
+        assert b.mapping_reason == "missing_sign_context"
+
+    # ---- CTP 669 → 018 (03) sign=positive ----------------------------------
+
+    def test_ctp_669_positive_amount_rattachable(self):
+        emp = self._employee(
+            *self._s78_with_s81("018", "50.00", base_code="03"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("669", "50.00", employees=[emp]))
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "669"][0]
+        assert b.mapping_status == "rattachable"
+
+    def test_ctp_669_computed_only_refuses_safely(self):
+        """CTP 669 with only base+rate (no S21.G00.23.005) must NOT infer sign."""
+        emp = self._employee(
+            *self._s78_with_s81("018", "50.00", base_code="03"),
+        )
+        # S23 has rate and base but no declared amount (.005)
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "50.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "50.00", 4),
+            _r("S21.G00.23.001", "669", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "100.00", 7),
+            _r("S21.G00.23.004", "50.00", 8),
+            # No S21.G00.23.005 — forces computed_only path
+            employees=[emp],
+        )
+        urssaf = self._get_urssaf(est)
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "669"][0]
+        assert b.mapping_status == "non_rattache"
+        assert b.mapping_reason == "missing_sign_context"
+
+    def test_ctp_669_negative_amount_refused(self):
+        emp = self._employee(
+            *self._s78_with_s81("018", "-50.00", base_code="03"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("669", "-50.00", employees=[emp]))
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "669"][0]
+        assert b.mapping_status == "non_rattache"
+        assert b.mapping_reason == "sign_condition_not_met"
+
+    # ---- CTP 900 regression: still blocked ----------------------------------
+
+    def test_ctp_900_still_expert_pending_runtime(self):
+        emp = self._employee(
+            *self._s78_with_s81("081", "50.00"),
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "50.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "50.00", 4),
+            _r("S21.G00.23.001", "900", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "50.00", 7),
+            _r("S21.G00.23.006", "75056", 8),
+            employees=[emp],
+        )
+        urssaf = self._get_urssaf(est)
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "900"][0]
+        assert b.mapping_status == "non_rattache"
+        assert b.mapping_reason == "rule_not_enabled"
+
+    # ---- CTP 937 → 048 (07) -----------------------------------------------
+
+    def test_ctp_937_rattachable(self):
+        emp = self._employee(
+            *self._s78_with_s81("048", "30.00", base_code="07"),
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp("937", "30.00", employees=[emp]))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "937"
+        assert b.mapping_status == "rattachable"
+
+    # ---- Mixed apprentice/non-apprentice in same establishment --------------
+
+    def test_mixed_apprentice_and_regular_employees(self):
+        """CTP 100 excludes apprentice employees, CTP 726 includes only them."""
+        emp_regular = self._employee(
+            *self._s78_with_s81("045", "100.00", base_code="03", start_line=20),
+            nom="REGULAR", prenom="Alice", empno="1", contract_nature="01",
+        )
+        emp_apprentice = self._employee(
+            *self._s78_with_s81("045", "80.00", base_code="03", start_line=40),
+            nom="APPRENTI", prenom="Bob", empno="2", contract_nature="02",
+        )
+        total = "180.00"
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", total, 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", total, 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "100.00", 7),
+            _r("S21.G00.23.001", "726", 8),
+            _r("S21.G00.23.002", "920", 9),
+            _r("S21.G00.23.005", "80.00", 10),
+            employees=[emp_regular, emp_apprentice],
+        )
+        urssaf = self._get_urssaf(est)
+        bds = {b.ctp_code: b for b in urssaf.urssaf_code_breakdowns}
+
+        # CTP 100 only picks up the regular employee
+        assert bds["100"].mapping_status == "rattachable"
+        assert bds["100"].individual_amount == Decimal("100.00")
+        assert len(bds["100"].employees) == 1
+        assert bds["100"].employees[0].employee_name == "REGULAR Alice"
+
+        # CTP 726 only picks up the apprentice
+        assert bds["726"].mapping_status == "rattachable"
+        assert bds["726"].individual_amount == Decimal("80.00")
+        assert len(bds["726"].employees) == 1
+        assert bds["726"].employees[0].employee_name == "APPRENTI Bob"
 
 
 class TestRoundingTolerancePAS:

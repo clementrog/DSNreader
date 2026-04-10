@@ -514,20 +514,33 @@ La liste canonique des statuts autorisés est exposée par le module `dsn_extrac
 
 Modèle d'activation : `enabled` et `guarded` sont actifs à l'exécution ; `expert_pending` et `excluded` sont déclarés dans les données mais non évalués.
 
-#### Table de mapping V1 (avril 2026)
+#### Table de mapping V1.1 (avril 2026)
 
-| CTP | Libellé | Cardinalité | Codes S81.001 | Statut | Condition |
-|-----|---------|-------------|---------------|--------|-----------|
-| 100 | RG CAS GENERAL | 1:N | 045,068,074,075,076 | enabled | component-scoped (920→03, 921→02) |
-| 959 | CFP ENTREPRISE < 11 SALARIES | 1:1 | 128 | enabled | — |
-| 983 | CFP INTERMITTENTS DU SPECTACLE | 1:1 | 128 | enabled | — |
-| 987 | CONTRIBUTION CPF CDD | 1:1 | 129 | enabled | — |
-| 992 | TA PRINCIPALE HORS ALSACE MOSELLE | 1:1 | 130 | enabled | — |
-| 993 | TA ALSACE MOSELLE | 1:1 | 130 | enabled | — |
-| 027 | CONTRIBUTION AU DIALOGUE SOCIAL | 1:1 | 100 | expert_pending | en attente validation |
-| 900 | VERSEMENT MOBILITE | 1:1 | 081 | expert_pending | commune-scoped matching requis |
-| 901 | VERSEMENT MOBILITE ADDITIONNEL | 1:1 | 082 | expert_pending | commune-scoped matching requis |
-| 971 | CFP ENTREPRISE >= 11 SALARIES | 1:1 | 128 | expert_pending | seuil SMIC requis |
+| CTP | Libellé | Cardinalité | Codes S81.001 | Base S78 | Statut | Condition |
+|-----|---------|-------------|---------------|----------|--------|-----------|
+| 003 | REDUCTION SALARIALE HEURES SUP | 1:1 | 114 | 03 | enabled | — |
+| 004 | DEDUCTION PATRONALE HEURES SUP | 1:1 | 021 | 03 | enabled | — |
+| 027 | CONTRIBUTION AU DIALOGUE SOCIAL | 1:1 | 100 | 03 | enabled | — |
+| 100 | RG CAS GENERAL | 1:N | 045,068,074,075,076 | 03/02 | enabled | component-scoped (920→03, 921→02), exclut apprenti (02) et mandataire (80) |
+| 236 | FNAL TOTALITE | 1:1 | 049 | 02 | enabled | — |
+| 260 | CSG CRDS REGIME GENERAL | 1:N | 072,079 | 04 | enabled | somme des deux codes |
+| 332 | FNAL PLAFONNE | 1:1 | 049 | 02 | enabled | — |
+| 423 | CONTRIB ASSURANCE CHOMAGE APPREN 87 U2 | 1:1 | 040 | 07 | enabled | apprenti uniquement (S21.G00.40.007=02) |
+| 635 | COMPLEMENT COTISATION MALADIE | 1:1 | 907 | 03 | enabled | — |
+| 668 | REDUCTION GENERALE ETENDUE U2 | 1:1 | 018 | 03 | enabled | montant déclaré < 0 |
+| 669 | REGUL REDUCTION GENERALE ETENDUE U2 | 1:1 | 018 | 03 | enabled | montant déclaré > 0 |
+| 726 | APPRENTIS SECT PRIVE INF SEUIL | 1:N | 045,068,074,075,076 | 03/02 | enabled | component-scoped (920→03, 921→02), apprenti uniquement (02) |
+| 772 | CONTRIBUTIONS ASSURANCE CHOMAGE U2 | 1:1 | 040 | 07 | enabled | exclut apprenti (02) |
+| 863 | RG MANDATAIRES SOCIAUX | 1:N | 045,068,074,075,076 | 03/02 | enabled | component-scoped (920→03, 921→02), mandataire uniquement (80) |
+| 937 | COTISATIONS AGS CAS GENERAL U2 | 1:1 | 048 | 07 | enabled | — |
+| 959 | CFP ENTREPRISE < 11 SALARIES | 1:1 | 128 | — | enabled | — |
+| 983 | CFP INTERMITTENTS DU SPECTACLE | 1:1 | 128 | — | enabled | — |
+| 987 | CONTRIBUTION CPF CDD | 1:1 | 129 | — | enabled | — |
+| 992 | TA PRINCIPALE HORS ALSACE MOSELLE | 1:1 | 130 | — | enabled | — |
+| 993 | TA ALSACE MOSELLE | 1:1 | 130 | — | enabled | — |
+| 900 | VERSEMENT MOBILITE | 1:1 | 081 | — | expert_pending | commune-scoped matching requis |
+| 901 | VERSEMENT MOBILITE ADDITIONNEL | 1:1 | 082 | — | expert_pending | commune-scoped matching requis |
+| 971 | CFP ENTREPRISE >= 11 SALARIES | 1:1 | 128 | — | expert_pending | seuil SMIC requis |
 
 #### Journal des décisions
 

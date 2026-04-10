@@ -56,14 +56,16 @@ class UrssafIndividualMapping:
 def load_mapping() -> dict[str, UrssafIndividualMapping]:
     """Return a dict of active 1:1 rules in the legacy format (ctp_code → row).
 
-    Rules with components (1:N) are excluded — they cannot be faithfully
-    represented as a single ``individual_code_s81``.
+    Rules with multiple individual codes or components (1:N) are excluded —
+    they cannot be faithfully represented as a single ``individual_code_s81``.
     """
     result: dict[str, UrssafIndividualMapping] = {}
     for ctp_code, rule in all_rules().items():
         if not is_rule_active(rule):
             continue
         if rule.components is not None:
+            continue
+        if len(rule.individual_codes_s81) != 1:
             continue
         result[ctp_code] = _rule_to_legacy(rule)
     return result
@@ -74,31 +76,32 @@ def is_urssaf_code_mappable(ctp_code: str | None) -> bool:
 
     Default-deny: empty, None, or unknown codes return False.
     Inactive rules (expert_pending, excluded) return False.
-    Rules with components (1:N) return False — the legacy API cannot
-    represent them as a single individual code.
+    Rules with multiple individual codes or components (1:N) return False —
+    the legacy API cannot represent them as a single individual code.
     """
     if not ctp_code:
         return False
     rule = get_rule(ctp_code)
     if rule is None or not is_rule_active(rule):
         return False
-    return rule.components is None
+    return rule.components is None and len(rule.individual_codes_s81) == 1
 
 
 def get_individual_code_for_ctp(ctp_code: str | None) -> str | None:
     """Return the ``S21.G00.81.001`` individual code for an active 1:1 CTP.
 
     Returns ``None`` for empty, None, unmappable, inactive, or 1:N rules
-    (rules with components cannot be faithfully represented as a single code).
+    (rules with multiple codes or components cannot be faithfully represented
+    as a single code).
     """
     if not ctp_code:
         return None
     rule = get_rule(ctp_code)
     if rule is None or not is_rule_active(rule):
         return None
-    if rule.components is not None:
+    if rule.components is not None or len(rule.individual_codes_s81) != 1:
         return None
-    return rule.individual_codes_s81[0] if rule.individual_codes_s81 else None
+    return rule.individual_codes_s81[0]
 
 
 # ---------------------------------------------------------------------------

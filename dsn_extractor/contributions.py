@@ -317,6 +317,20 @@ _PARTIAL_CTP_WARNING = (
 )
 
 
+def _collect_employee_contract_natures(
+    employee_blocks: list[EmployeeBlock],
+) -> dict[int, frozenset[str]]:
+    """Map employee index → set of S21.G00.40.007 contract nature values."""
+    result: dict[int, frozenset[str]] = {}
+    for idx, emp in enumerate(employee_blocks):
+        natures = frozenset(
+            v.strip() for v in _find_all_values(emp.records, "S21.G00.40.007")
+            if v and v.strip()
+        )
+        result[idx] = natures
+    return result
+
+
 def _collect_s81_by_individual_code(
     employee_blocks: list[EmployeeBlock],
 ) -> tuple[dict[str, list[tuple[int, str, Decimal, list[int], str]]], bool]:
@@ -369,6 +383,7 @@ def _build_urssaf_code_breakdowns(
     qualifiers_by_ctp: dict[str, set[str]],
     insee_codes_by_ctp: dict[str, set[str]],
     ctps_with_empty_qualifier: set[str] | None = None,
+    contract_natures_by_emp: dict[int, frozenset[str]] | None = None,
 ) -> list[UrssafCodeBreakdown]:
     """Group URSSAF details by CTP code and attach employee drill-down.
 
@@ -392,6 +407,10 @@ def _build_urssaf_code_breakdowns(
     # deterministic.
     ordered_ctps: list[str] = []
     declared_by_ctp: dict[str, Decimal | None] = {}
+    # Tracks only the raw declared amounts from S21.G00.23.005 (no computed
+    # fallback). Used by sign-gated rules (668/669) which must read the
+    # actual declared sign, not an inferred one from base × rate.
+    raw_declared_by_ctp: dict[str, Decimal | None] = {}
     label_by_ctp: dict[str, str | None] = {}
     # A CTP is "complete" only when every one of its contributing detail
     # rows produced a chosen amount. Start optimistic, flip to False on the
@@ -405,6 +424,7 @@ def _build_urssaf_code_breakdowns(
         if ctp not in declared_by_ctp:
             ordered_ctps.append(ctp)
             declared_by_ctp[ctp] = None
+            raw_declared_by_ctp[ctp] = None
             label_by_ctp[ctp] = d.label
             complete_by_ctp[ctp] = True
 
@@ -423,6 +443,11 @@ def _build_urssaf_code_breakdowns(
         else:
             current = declared_by_ctp[ctp]
             declared_by_ctp[ctp] = (current or Decimal(0)) + chosen
+
+        # Track raw declared separately (only S21.G00.23.005 values).
+        if d.declared_amount is not None:
+            cur_raw = raw_declared_by_ctp[ctp]
+            raw_declared_by_ctp[ctp] = (cur_raw or Decimal(0)) + d.declared_amount
 
     breakdowns: list[UrssafCodeBreakdown] = []
     for ctp in ordered_ctps:
@@ -482,6 +507,35 @@ def _build_urssaf_code_breakdowns(
                 warnings=row_warnings,
             ))
             continue
+
+        # Phase 3b: Sign condition check — uses only the raw declared amount
+        # from S21.G00.23.005, never a recomputed fallback.
+        if rule.conditions.sign_condition is not None:
+            raw_declared = raw_declared_by_ctp.get(ctp)
+            if raw_declared is None or raw_declared == 0:
+                breakdowns.append(UrssafCodeBreakdown(
+                    ctp_code=ctp,
+                    ctp_label=label,
+                    mapping_status="non_rattache",
+                    mapping_reason="missing_sign_context",
+                    declared_amount=declared,
+                    warnings=row_warnings,
+                ))
+                continue
+            sign_ok = (
+                (rule.conditions.sign_condition == "negative" and raw_declared < 0)
+                or (rule.conditions.sign_condition == "positive" and raw_declared > 0)
+            )
+            if not sign_ok:
+                breakdowns.append(UrssafCodeBreakdown(
+                    ctp_code=ctp,
+                    ctp_label=label,
+                    mapping_status="non_rattache",
+                    mapping_reason="sign_condition_not_met",
+                    declared_amount=declared,
+                    warnings=row_warnings,
+                ))
+                continue
 
         # Phase 4: S81 row scanning.
         included_rows: list[tuple[int, str, Decimal, list[int], str, str]] = []
@@ -565,14 +619,45 @@ def _build_urssaf_code_breakdowns(
                             {"code": s81_code, "reason": "wrong_base"}
                         )
         else:
-            # Path B: Flat matching (simple 1:1 rules).
+            # Path B: Flat matching (simple 1:1 or 1:N rules without components).
             for s81_code in rule.individual_codes_s81:
                 for row in s81_by_code.get(s81_code, []):
                     emp_idx, emp_name, amt, lines, base_code_78 = row
+                    if rule.base_codes_s78 and base_code_78 not in rule.base_codes_s78:
+                        excluded_entries.append(
+                            {"code": s81_code, "reason": "wrong_base"}
+                        )
+                        continue
                     included_rows.append(
                         (emp_idx, emp_name, amt, lines, base_code_78, s81_code)
                     )
                     applied_codes.add(s81_code)
+
+        # Phase 4.5: Employee contract nature filtering.
+        status_filter_missing_context = False
+        if contract_natures_by_emp is not None and (
+            rule.conditions.requires_contract_nature
+            or rule.conditions.excludes_contract_nature
+        ):
+            filtered_rows: list[tuple[int, str, Decimal, list[int], str, str]] = []
+            for row in included_rows:
+                emp_natures = contract_natures_by_emp.get(row[0], frozenset())
+                if rule.conditions.requires_contract_nature:
+                    if not emp_natures:
+                        # Employee has no S21.G00.40.007 — cannot evaluate
+                        status_filter_missing_context = True
+                        continue
+                    if not (emp_natures & rule.conditions.requires_contract_nature):
+                        continue
+                if rule.conditions.excludes_contract_nature:
+                    if not emp_natures:
+                        # Employee has no S21.G00.40.007 — cannot evaluate
+                        status_filter_missing_context = True
+                        continue
+                    if emp_natures & rule.conditions.excludes_contract_nature:
+                        continue
+                filtered_rows.append(row)
+            included_rows = filtered_rows
 
         # Phase 5: Aggregate and emit.
         individual_code_display = (
@@ -580,6 +665,26 @@ def _build_urssaf_code_breakdowns(
             if len(rule.individual_codes_s81) == 1 and rule.components is None
             else None
         )
+
+        # If any candidate rows were dropped because the employee had no
+        # S21.G00.40.007, the remaining rows (if any) represent only part
+        # of the eligible population.  Presenting that partial sum as a
+        # trustworthy "rattachable" total would violate the safety model,
+        # so we refuse the entire CTP regardless of whether some rows
+        # survived the filter.
+        if status_filter_missing_context:
+            breakdowns.append(UrssafCodeBreakdown(
+                ctp_code=ctp,
+                ctp_label=label,
+                individual_code=individual_code_display,
+                mapping_status="non_rattache",
+                mapping_reason="missing_employee_status_context",
+                applied_individual_codes=sorted(applied_codes),
+                excluded_individual_codes=excluded_entries,
+                declared_amount=declared,
+                warnings=row_warnings,
+            ))
+            continue
 
         if not included_rows:
             breakdowns.append(UrssafCodeBreakdown(
@@ -867,9 +972,10 @@ def _compute_urssaf(
 
     # Slice C: per-CTP drill-down to employee-level amounts via Slice B mapping.
     s81_by_code, has_any_s78_s81 = _collect_s81_by_individual_code(employee_blocks)
+    contract_natures_by_emp = _collect_employee_contract_natures(employee_blocks)
     urssaf_code_breakdowns = _build_urssaf_code_breakdowns(
         details, s81_by_code, qualifiers_by_ctp, insee_codes_by_ctp,
-        ctps_with_empty_qualifier,
+        ctps_with_empty_qualifier, contract_natures_by_emp,
     )
 
     # Warn when individual data is present in the file but some CTPs cannot
@@ -882,6 +988,9 @@ def _compute_urssaf(
             "missing_runtime_condition": "conditions de rattachement non réunies",
             "missing_declared_qualifier": "qualifiant d'assiette manquant côté déclaratif",
             "unsupported_declared_qualifier": "variante d'assiette non prise en charge",
+            "missing_sign_context": "contexte de signe manquant pour le montant déclaré",
+            "sign_condition_not_met": "condition de signe non respectée",
+            "missing_employee_status_context": "statut salarié (S21.G00.40.007) manquant",
         }
         for reason, reason_label in _reason_labels.items():
             ctps = sorted(
