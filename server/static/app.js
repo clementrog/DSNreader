@@ -55,6 +55,7 @@
     "065": "D\u00e9c\u00e8s",
     "066": "D\u00e9part volontaire (PSE)",
     "099": "Fin de relation (transfert)",
+    "998": "Transfert du contrat sans rupture vers un autre \u00e9tablissement hors DSN",
   };
 
   var ABSENCE_MOTIF_LABELS = {
@@ -74,6 +75,7 @@
     "20": "Temps partiel th\u00e9rapeutique",
     "501": "Cong\u00e9 divers non r\u00e9mun\u00e9r\u00e9",
     "637": "Cong\u00e9 pour \u00e9v\u00e9nement familial",
+    "998": "Annulation",
   };
 
   var COMPLEXITY_WEIGHTS = {

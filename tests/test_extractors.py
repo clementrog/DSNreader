@@ -1359,6 +1359,22 @@ class TestEnumWarningConsistency:
         ]
         assert reason_warnings == []
 
+    def test_known_exit_reason_998_no_warning(self) -> None:
+        """Code 998 is a valid DSN rupture motif and must not be flagged unknown."""
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(contract_end="15012025", rupture="998")
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.exit_reasons_by_label == {
+            "transfert_contrat_sans_rupture_vers_autre_etablissement_hors_dsn": 1,
+        }
+        reason_warnings = [
+            w for w in out.global_quality.warnings if "Unknown contract end reason" in w
+        ]
+        assert reason_warnings == []
+
     def test_known_absence_code_501_no_warning(self) -> None:
         """Code 501 (conge_divers_non_remunere) must produce label, no warning."""
         text = (
@@ -1368,6 +1384,24 @@ class TestEnumWarningConsistency:
         )
         out = _extract_fixture(text)
         assert out.establishments[0].counts.absences_by_code == {"501": 1}
+        absence_warnings = [
+            w for w in out.global_quality.warnings if "Unknown absence motif" in w
+        ]
+        assert absence_warnings == []
+
+    def test_known_absence_code_998_no_warning(self) -> None:
+        """Code 998 is a valid DSN suspension motif and must not be flagged unknown."""
+        text = (
+            MINIMAL_HEADER + MINIMAL_ESTABLISHMENT
+            + _make_employee(absences=["998"])
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        assert out.establishments[0].counts.absences_by_code == {"998": 1}
+        assert any(
+            d.motif_code == "998" and d.motif_label == "annulation"
+            for d in out.establishments[0].counts.absence_event_details
+        )
         absence_warnings = [
             w for w in out.global_quality.warnings if "Unknown absence motif" in w
         ]

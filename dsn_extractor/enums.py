@@ -58,6 +58,7 @@ CONTRACT_END_REASON_LABELS: dict[str, str] = {
     "065": "deces",
     "066": "depart_volontaire_pse",
     "099": "fin_relation_transfert",
+    "998": "transfert_contrat_sans_rupture_vers_autre_etablissement_hors_dsn",
 }
 
 # S21.G00.65.001 — Motif d'arrêt de travail
@@ -78,4 +79,5 @@ ABSENCE_MOTIF_LABELS: dict[str, str] = {
     "20": "temps_partiel_therapeutique",
     "501": "conge_divers_non_remunere",
     "637": "conge_evenement_familial",
+    "998": "annulation",
 }
