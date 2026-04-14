@@ -1307,6 +1307,36 @@
   // persist through state.expandedUrssafCtps until scope / establishment
   // changes.
 
+  function _displayedAmount(breakdown, value) {
+    // Render helper: for reduction rows flagged by the backend
+    // (display_absolute=True on 003/004/668), the UI shows the amount as a
+    // positive magnitude regardless of its raw DSN sign. Backend values stay
+    // signed for audit; this is purely a render concern.
+    if (value == null) return value;
+    if (breakdown && breakdown.display_absolute) {
+      var n = typeof value === "number" ? value : parseFloat(value);
+      if (!isNaN(n)) return Math.abs(n);
+    }
+    return value;
+  }
+
+  function _displayedDelta(breakdown) {
+    // Business comparison for the collapsed row. For display_absolute rows the
+    // user-facing delta is abs(declared) - abs(individual), because DSN sign
+    // conventions on these reductions are asymmetric (declared positive, S81
+    // individual negative), so the signed breakdown.delta is not the number
+    // the payroll admin is reading on the row.
+    if (breakdown == null) return null;
+    if (!breakdown.display_absolute) return breakdown.delta;
+    if (breakdown.declared_amount == null || breakdown.individual_amount == null) {
+      return breakdown.delta;
+    }
+    var d = parseFloat(breakdown.declared_amount);
+    var i = parseFloat(breakdown.individual_amount);
+    if (isNaN(d) || isNaN(i)) return breakdown.delta;
+    return Math.abs(d) - Math.abs(i);
+  }
+
   function _ctpHasIssue(breakdown, assietteDetails) {
     // Returns true when a CTP row needs to be surfaced under the default
     // "Afficher uniquement les écarts" filter — i.e. whenever the row carries
@@ -1318,7 +1348,8 @@
     // Criteria (any one is sufficient):
     //   1. Declared-side écart: any assiette row with rate_mismatch or
     //      amount_mismatch.
-    //   2. Individual-side écart: non-zero breakdown.delta.
+    //   2. Individual-side écart: non-zero breakdown.delta that is NOT
+    //      within the euro tolerance (backend-supplied delta_within_unit).
     //   3. Mapping status is anything other than "rattachable" — so
     //      non_rattache and manquant_individuel rows are always visible and
     //      the UI can explicitly explain why the drill-down is unavailable.
@@ -1331,7 +1362,7 @@
     }
     if (breakdown && breakdown.delta != null) {
       var dv = parseFloat(breakdown.delta);
-      if (!isNaN(dv) && dv !== 0) return true;
+      if (!isNaN(dv) && dv !== 0 && !breakdown.delta_within_unit) return true;
     }
     if (breakdown && breakdown.mapping_status && breakdown.mapping_status !== "rattachable") {
       return true;
@@ -1509,10 +1540,21 @@
       var linesTitle = lines.length > 0
         ? ' title="Lignes DSN\u00a0: ' + escapeHtml(lines.map(function (l) { return 'L' + l; }).join(', ')) + '"'
         : '';
+      // Employees now carry the full set of contributing S81 codes; join them
+      // so the drill-down shows every code that rolled into this employee's
+      // total (previously we displayed a single code and duplicated the row
+      // per code).
+      var codesList = Array.isArray(emp.individual_codes) && emp.individual_codes.length > 0
+        ? emp.individual_codes
+        : (emp.individual_code ? [emp.individual_code] : []);
+      var codesLabel = codesList.length > 0 ? codesList.join(', ') : NOT_AVAILABLE;
+      var codesTitle = codesList.length > 1
+        ? ' title="Codes S81 contribuant au total de ce salari\u00e9\u00a0: ' + escapeHtml(codesLabel) + '"'
+        : '';
       return '<tr>'
         + '<td>' + escapeHtml(emp.employee_name || NOT_AVAILABLE) + '</td>'
-        + '<td class="mono">' + escapeHtml(emp.individual_code || NOT_AVAILABLE) + '</td>'
-        + '<td class="mono">' + escapeHtml(formatAmount(emp.amount)) + '</td>'
+        + '<td class="mono"' + codesTitle + '>' + escapeHtml(codesLabel) + '</td>'
+        + '<td class="mono">' + escapeHtml(formatAmount(_displayedAmount(breakdown, emp.amount))) + '</td>'
         + '<td class="mono"' + linesTitle + '>' + linesLabel + '</td>'
         + '</tr>';
     }).join("");
@@ -1538,7 +1580,7 @@
       var hasDelta = false;
       if (breakdown.delta != null) {
         var dv = parseFloat(breakdown.delta);
-        hasDelta = !isNaN(dv) && dv !== 0;
+        hasDelta = !isNaN(dv) && dv !== 0 && !breakdown.delta_within_unit;
       }
       if (hasDelta) {
         return '<span class="status-badge status-badge--ecart">\u00c9cart rattachement</span>';
@@ -1555,13 +1597,15 @@
     var details = Array.isArray(item.details) ? item.details : [];
     var breakdowns = Array.isArray(item.urssaf_code_breakdowns) ? item.urssaf_code_breakdowns : [];
 
-    // Group assiette details by ctp_code for sub-section rendering.
-    var detailsByCtp = {};
+    // Group assiette details by mapped_code (falling back to ctp_code) so the
+    // per-mapped-row backend split (e.g. 100D vs 100P) keeps its matching
+    // assiette sub-rows in each expanded row — not the union of both.
+    var detailsByMapped = {};
     details.forEach(function (d) {
-      var ctp = d.ctp_code || '';
-      if (!ctp) return;
-      if (!detailsByCtp[ctp]) detailsByCtp[ctp] = [];
-      detailsByCtp[ctp].push(d);
+      var key = d.mapped_code || d.ctp_code || '';
+      if (!key) return;
+      if (!detailsByMapped[key]) detailsByMapped[key] = [];
+      detailsByMapped[key].push(d);
     });
 
     // Build one CTP-level row per entry in urssaf_code_breakdowns. Fall back
@@ -1570,19 +1614,23 @@
     // that have S23 children).
     var ctpRows = breakdowns.length > 0
       ? breakdowns.map(function (b) {
+          var key = b.mapped_code || b.ctp_code;
           return {
             ctp_code: b.ctp_code,
+            mapped_code: key,
             label: b.ctp_label,
             breakdown: b,
-            assietteDetails: detailsByCtp[b.ctp_code] || [],
+            assietteDetails: detailsByMapped[key] || [],
           };
         })
-      : Object.keys(detailsByCtp).map(function (ctp) {
+      : Object.keys(detailsByMapped).map(function (key) {
+          var firstDetail = detailsByMapped[key][0] || {};
           return {
-            ctp_code: ctp,
-            label: (detailsByCtp[ctp][0] && detailsByCtp[ctp][0].label) || null,
+            ctp_code: firstDetail.ctp_code || key,
+            mapped_code: key,
+            label: firstDetail.label || null,
             breakdown: null,
-            assietteDetails: detailsByCtp[ctp],
+            assietteDetails: detailsByMapped[key],
           };
         });
 
@@ -1631,24 +1679,36 @@
       var b = row.breakdown;
       var assietteDetails = row.assietteDetails;
       var hasIssue = _ctpHasIssue(b, assietteDetails);
-      var expanded = _isUrssafCtpExpanded(item, row.ctp_code, hasIssue);
+      // Expand key is the mapped_code so 100D and 100P keep independent
+      // expansion state.
+      var expandKey = row.mapped_code || row.ctp_code;
+      var expanded = _isUrssafCtpExpanded(item, expandKey, hasIssue);
 
-      var mappedCode = (assietteDetails[0] && (assietteDetails[0].mapped_code || assietteDetails[0].ctp_code))
+      var mappedCode = row.mapped_code
+        || (assietteDetails[0] && (assietteDetails[0].mapped_code || assietteDetails[0].ctp_code))
         || row.ctp_code
         || NOT_AVAILABLE;
 
       // Per-CTP declared / individual / delta come from the breakdown when
-      // present. The backend already hides the declared side when the
-      // multi-assiette collapse is partial.
-      var declaredCell = b != null ? escapeHtml(formatAmount(b.declared_amount)) : escapeHtml(formatAmount(null));
-      var individualCell = b != null ? escapeHtml(formatAmount(b.individual_amount)) : escapeHtml(formatAmount(null));
+      // present. For display_absolute rows, helpers render positive magnitudes
+      // and recompute the business delta from the abs values (so the number in
+      // the "Delta code" column matches what the payroll admin is comparing).
+      var declaredCell = b != null
+        ? escapeHtml(formatAmount(_displayedAmount(b, b.declared_amount)))
+        : escapeHtml(formatAmount(null));
+      var individualCell = b != null
+        ? escapeHtml(formatAmount(_displayedAmount(b, b.individual_amount)))
+        : escapeHtml(formatAmount(null));
       var deltaCell = 'NC';
-      if (b != null && b.delta != null) {
-        var dv = parseFloat(b.delta);
-        if (!isNaN(dv) && dv !== 0) {
-          deltaCell = '<span class="cell-delta">' + escapeHtml(formatAmount(b.delta)) + '</span>';
-        } else if (!isNaN(dv)) {
-          deltaCell = escapeHtml(formatAmount(b.delta));
+      if (b != null) {
+        var displayedDelta = _displayedDelta(b);
+        if (displayedDelta != null) {
+          var dv = parseFloat(displayedDelta);
+          if (!isNaN(dv) && dv !== 0 && !b.delta_within_unit) {
+            deltaCell = '<span class="cell-delta">' + escapeHtml(formatAmount(displayedDelta)) + '</span>';
+          } else if (!isNaN(dv)) {
+            deltaCell = escapeHtml(formatAmount(displayedDelta));
+          }
         }
       }
 
@@ -1660,7 +1720,10 @@
         + (expanded ? ' urssaf-ctp-row--expanded' : '')
         + (hasIssue ? ' urssaf-ctp-row--ecart' : '');
 
-      var parentRow = '<tr class="' + rowCls + '" data-action="toggle-urssaf-ctp" data-ctp-code="' + escapeHtml(row.ctp_code) + '">'
+      // data-ctp-code carries the mapped_code (row-identity key), not the
+      // raw CTP — the click handler uses it verbatim to build the expansion
+      // state key and must line up with _urssafCtpExpandKey's argument above.
+      var parentRow = '<tr class="' + rowCls + '" data-action="toggle-urssaf-ctp" data-ctp-code="' + escapeHtml(expandKey) + '">'
         + '<td class="urssaf-ctp-table__chevron-col"><span class="urssaf-ctp-chevron">\u25b6</span></td>'
         + '<td class="mono">' + escapeHtml(mappedCode) + '</td>'
         + '<td>' + escapeHtml(row.label || NOT_AVAILABLE) + '</td>'
