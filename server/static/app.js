@@ -245,7 +245,21 @@
 
   // ── Formatting helpers ───────────────────────────────────
 
-  var NOT_AVAILABLE = "N.C.";
+  var NOT_AVAILABLE = "\u2014";
+
+  // Fixed column layout for the URSSAF CTP table. Declared via <colgroup> so
+  // the browser locks the widths up front and an expanding row (with its
+  // wider sub-tables inside a colspan cell) cannot rebalance the parent
+  // columns. Total advertised width == .urssaf-ctp-table's min-width (900px).
+  var URSSAF_CTP_COLGROUP = '<colgroup>'
+    + '<col style="width: 32px;">'
+    + '<col style="width: 72px;">'
+    + '<col>'
+    + '<col style="width: 120px;">'
+    + '<col style="width: 120px;">'
+    + '<col style="width: 110px;">'
+    + '<col style="width: 180px;">'
+    + '</colgroup>';
 
   function formatAmount(v) {
     if (v == null) return NOT_AVAILABLE;
@@ -317,7 +331,7 @@
       return '<span class="status-subtle status-subtle--ok" title="OK">&#10003;</span>';
     }
     if (status === "non_calculable") {
-      return '<span class="status-subtle status-subtle--muted" title="Non calculable">NC</span>';
+      return '<span class="cell-na" title="Non calculable">\u2014</span>';
     }
     return '<span class="' + getStatusBadgeClass(status) + '">'
       + escapeHtml(formatDetailStatusLabel(detail))
@@ -1222,6 +1236,20 @@
       ? '<span class="contrib-summary__warning-count">' + allWarnings.length + ' avert.</span>'
       : '';
 
+    // When the aggregate status is OK but row-level warnings exist, we suppress
+    // the loud "OK" pill in the header (it reads as a contradiction next to the
+    // warning count) and replace it with a muted sub-line that restores the
+    // hierarchy: aggregate reconciled, details worth checking.
+    var showOkBadge = true;
+    var okWithWarningsHtml = '';
+    if (item.status === 'ok' && allWarnings.length > 0) {
+      showOkBadge = false;
+      okWithWarningsHtml = '<span class="contrib-summary__ok-with-warnings">'
+        + 'Rapprochement OK \u00b7 '
+        + allWarnings.length + ' point(s) de vigilance'
+        + '</span>';
+    }
+
     // Item-level warnings only for the warning box (detail warnings go inline in table)
     var itemWarnings = Array.isArray(item.warnings) ? item.warnings : [];
 
@@ -1242,10 +1270,13 @@
       + '<div class="contrib-item__header-right">'
       + '<div class="contrib-summary__metrics">' + renderContributionSummaryMetrics(item) + '</div>'
       + warningCountHtml
+      + okWithWarningsHtml
       + deltaHtml
-      + '<span class="' + getStatusBadgeClass(item.status) + '">'
-      + escapeHtml(formatStatusLabel(item.status))
-      + '</span>'
+      + (showOkBadge
+          ? '<span class="' + getStatusBadgeClass(item.status) + '">'
+            + escapeHtml(formatStatusLabel(item.status))
+            + '</span>'
+          : '')
       + '</div>'
       + '</div>'
       + '<div class="contrib-detail-body' + (expanded ? '' : ' contrib-detail-body--collapsed') + '">'
@@ -1392,7 +1423,10 @@
       return '<div class="urssaf-ctp-empty-message">Aucune variante d\u2019assiette pour ce code.</div>';
     }
     var headerHtml = '<thead><tr>'
-      + '<th>Assiette</th><th>Taux</th><th>Montant</th><th>Delta</th>'
+      + '<th class="col-num">Assiette</th>'
+      + '<th class="col-num">Taux</th>'
+      + '<th class="col-num">Montant</th>'
+      + '<th class="col-num">Delta</th>'
       + '</tr></thead>';
     var rowsHtml = assietteDetails.map(function (detail) {
       var rowCls = 'detail-row detail-row--' + (detail.status || 'ok');
@@ -1434,19 +1468,21 @@
         montantHtml = escapeHtml(formatAmount(null));
       }
 
-      var deltaHtml = 'NC';
+      var deltaHtml = '<span class="cell-na" title="Non calculable">\u2014</span>';
       if (detail.delta != null) {
         var dv = parseFloat(detail.delta);
         if (!isNaN(dv) && dv !== 0) {
           deltaHtml = '<span class="cell-delta">' + escapeHtml(formatAmount(detail.delta)) + '</span>';
+        } else if (!isNaN(dv)) {
+          deltaHtml = escapeHtml(formatAmount(detail.delta));
         }
       }
 
       var rowHtml = '<tr class="' + rowCls + '">'
-        + '<td class="mono"' + assietteTitle + '>' + assietteHtml + '</td>'
-        + '<td class="mono"' + tauxTitle + '>' + tauxHtml + '</td>'
-        + '<td class="mono"' + montantTitle + '>' + montantHtml + '</td>'
-        + '<td class="mono">' + deltaHtml + '</td>'
+        + '<td class="col-num"' + assietteTitle + '>' + assietteHtml + '</td>'
+        + '<td class="col-num"' + tauxTitle + '>' + tauxHtml + '</td>'
+        + '<td class="col-num"' + montantTitle + '>' + montantHtml + '</td>'
+        + '<td class="col-num">' + deltaHtml + '</td>'
         + '</tr>';
 
       if (detail.warnings && detail.warnings.length > 0) {
@@ -1498,12 +1534,9 @@
           + 'n\u2019a \u00e9t\u00e9 trouv\u00e9 dans cette DSN.';
       } else {
         // no_verified_mapping_rule — e.g. CTP 430D.
-        reasonText = '<strong>Mapping salari\u00e9 non encore confirm\u00e9 pour ce code.</strong> '
-          + 'Le montant d\u00e9clar\u00e9 au niveau de l\u2019\u00e9tablissement est bien lu, mais '
-          + 'aucun lien v\u00e9rifi\u00e9 ne relie pour l\u2019instant ce CTP \u00e0 une cotisation '
-          + 'individuelle salari\u00e9 (<code>S21.G00.81</code>). '
-          + 'Le d\u00e9tail par salari\u00e9 est donc volontairement masqu\u00e9 — il sera '
-          + 'ajout\u00e9 lorsque la correspondance aura \u00e9t\u00e9 valid\u00e9e.';
+        reasonText = '<strong>Rattachement salari\u00e9 non encore confirm\u00e9 pour ce code.</strong> '
+          + 'Le montant \u00e9tablissement est bien lu. La ventilation par salari\u00e9 '
+          + 'sera affich\u00e9e une fois la correspondance valid\u00e9e.';
       }
       return '<div class="urssaf-sub-section">'
         + '<h5 class="urssaf-sub-section__title">Salari\u00e9s</h5>'
@@ -1520,14 +1553,12 @@
       return '<div class="urssaf-sub-section">'
         + '<h5 class="urssaf-sub-section__title">Salari\u00e9s</h5>'
         + '<div class="urssaf-ctp-empty-message urssaf-ctp-empty-message--missing">'
-        + '<strong>Lignes salari\u00e9s attendues mais absentes de cette DSN.</strong> '
-        + 'La correspondance entre ce CTP et une cotisation individuelle est connue '
-        + '(code attendu\u00a0: <code>'
+        + '<strong>Lignes salari\u00e9s attendues mais absentes dans cette DSN.</strong> '
+        + 'La correspondance est connue (code attendu\u00a0: <code>'
         + escapeHtml(breakdown.individual_code || '?')
-        + '</code>), mais aucune ligne <code>S21.G00.81</code> correspondante n\u2019a '
-        + '\u00e9t\u00e9 trouv\u00e9e chez les salari\u00e9s de cet \u00e9tablissement. '
-        + 'La ventilation par salari\u00e9 n\u2019est donc pas affich\u00e9e — c\u2019est un '
-        + 'manque de donn\u00e9e dans la DSN, pas une mapping manquante.'
+        + '</code>) mais aucune ligne individuelle ne l\u2019utilise pour les salari\u00e9s '
+        + 'de cet \u00e9tablissement. Il s\u2019agit d\u2019une donn\u00e9e manquante dans le fichier '
+        + 're\u00e7u, pas d\u2019un mapping absent.'
         + '</div>'
         + '</div>';
     }
@@ -1561,10 +1592,11 @@
         ? ' title="Codes S81 contribuant au total de ce salari\u00e9\u00a0: ' + escapeHtml(codesLabel) + '"'
         : '';
       return '<tr>'
+        + '<td></td>'
         + '<td>' + escapeHtml(emp.employee_name || NOT_AVAILABLE) + '</td>'
-        + '<td class="mono"' + codesTitle + '>' + escapeHtml(codesLabel) + '</td>'
-        + '<td class="mono">' + escapeHtml(formatAmount(_displayedAmount(breakdown, emp.amount))) + '</td>'
-        + '<td class="mono"' + linesTitle + '>' + linesLabel + '</td>'
+        + '<td'  + codesTitle + '>' + escapeHtml(codesLabel) + '</td>'
+        + '<td class="col-num">' + escapeHtml(formatAmount(_displayedAmount(breakdown, emp.amount))) + '</td>'
+        + '<td class="urssaf-lines-cell"' + linesTitle + '>' + linesLabel + '</td>'
         + '</tr>';
     }).join("");
 
@@ -1587,12 +1619,31 @@
         + '</div>';
     }
 
+    // Column widths mirror the parent CTP table's colgroup so the sub-table
+    // reads as a vertical extension of the main grid:
+    //   Salarié           ← parent's code (72) + libellé (flex)
+    //   Code S81          ← parent's Déclaré   (120)
+    //   Montant           ← parent's Individuel (120)
+    //   Lignes DSN        ← parent's Delta (110) + Rattachement (180) = 290
+    // The leading 32px col absorbs the parent's chevron column so the first
+    // visible column (Salarié) lines up with the parent Code column.
+    var employeesColgroup = '<colgroup>'
+      + '<col style="width: 32px;">'
+      + '<col>'
+      + '<col style="width: 120px;">'
+      + '<col style="width: 120px;">'
+      + '<col style="width: 290px;">'
+      + '</colgroup>';
     return '<div class="urssaf-sub-section">'
       + '<h5 class="urssaf-sub-section__title">Salari\u00e9s (' + employees.length + ')' + appliedCodes + '</h5>'
       + declaredNote
       + '<table class="data-table urssaf-sub-table urssaf-employees-table">'
+      + employeesColgroup
       + '<thead><tr>'
-      + '<th>Salari\u00e9</th><th>Code S81</th><th>Montant</th><th>Lignes DSN</th>'
+      + '<th></th>'
+      + '<th>Salari\u00e9</th><th>Code S81</th>'
+      + '<th class="col-num">Montant</th>'
+      + '<th>Lignes DSN</th>'
       + '</tr></thead>'
       + '<tbody>' + rowsHtml + '</tbody>'
       + '</table>'
@@ -1688,11 +1739,14 @@
     if (visibleRows.length === 0) {
       return toolbar
         + '<div class="contrib-details-wrap">'
-        + '<table class="data-table urssaf-ctp-table" style="margin-top: var(--sp-4);">'
+        + '<table class="data-table urssaf-ctp-table">'
+        + URSSAF_CTP_COLGROUP
         + '<thead><tr>'
         + '<th class="urssaf-ctp-table__chevron-col"></th>'
         + '<th>Code</th><th>Libell\u00e9</th>'
-        + '<th>D\u00e9clar\u00e9</th><th>Individuel</th><th>Delta code</th>'
+        + '<th class="col-num">D\u00e9clar\u00e9</th>'
+        + '<th class="col-num">Individuel</th>'
+        + '<th class="col-num">Delta</th>'
         + '<th>Rattachement</th>'
         + '</tr></thead>'
         + '<tbody><tr><td colspan="7" class="data-table__empty">' + emptyMsg + '</td></tr></tbody>'
@@ -1717,17 +1771,16 @@
       // Per-CTP declared / individual / delta come from the breakdown when
       // present. For display_absolute rows, helpers render positive magnitudes
       // and recompute the business delta from the abs values (so the number in
-      // the "Delta code" column matches what the payroll admin is comparing).
+      // the "Delta" column matches what the payroll admin is comparing).
       var declaredCell;
       if (b != null && b.declared_amount == null && b.mapping_status === 'rattachable') {
         // AT-rate-only D rows (100D / 726D / 863D …) and any other
         // single-variant row where .005 isn't declared. We intentionally do
-        // not fabricate an aggregate amount here; show an explicit label so
-        // the "N.C." doesn't look like a bug.
-        declaredCell = '<span class="cell-info"'
-          + ' title="Le montant d\u00e9clar\u00e9 URSSAF (S21.G00.23.005) n\u2019est pas disponible'
-          + ' pour cette variante (par ex. lignes AT d\u00e9clar\u00e9es par taux seul).'
-          + ' Le d\u00e9tail salari\u00e9 reste consultable.">Non calculable</span>';
+        // not fabricate an aggregate amount here; show an explicit
+        // "Non calculable" chip so the empty cell doesn't look like a bug.
+        declaredCell = '<span class="cell-na"'
+          + ' title="Montant URSSAF non d\u00e9clar\u00e9 pour cette variante.'
+          + ' Le d\u00e9tail salari\u00e9 reste consultable.">\u2014</span>';
       } else if (b != null) {
         declaredCell = escapeHtml(formatAmount(_displayedAmount(b, b.declared_amount)));
       } else {
@@ -1736,7 +1789,7 @@
       var individualCell = b != null
         ? escapeHtml(formatAmount(_displayedAmount(b, b.individual_amount)))
         : escapeHtml(formatAmount(null));
-      var deltaCell = 'NC';
+      var deltaCell = '<span class="cell-na" title="Non calculable">\u2014</span>';
       if (b != null) {
         var displayedDelta = _displayedDelta(b);
         if (displayedDelta != null) {
@@ -1753,52 +1806,64 @@
         ? _renderUrssafCtpRattachementBadge(b)
         : '<span class="status-badge status-badge--non_rattache">Non rattach\u00e9</span>';
 
+      // Row-level warnings (from UrssafCodeBreakdown.warnings) move to the
+      // expanded state. The collapsed row carries only a subtle left-accent
+      // stripe (via --has-warnings) so the user can see at a glance which
+      // rows hold a note — without the full sentence adding noise.
+      var breakdownWarnings = (b && Array.isArray(b.warnings)) ? b.warnings : [];
+      var hasWarnings = breakdownWarnings.length > 0;
+
       var rowCls = 'urssaf-ctp-row'
         + (expanded ? ' urssaf-ctp-row--expanded' : '')
-        + (hasIssue ? ' urssaf-ctp-row--ecart' : '');
+        + (hasIssue ? ' urssaf-ctp-row--ecart' : '')
+        + (hasWarnings ? ' urssaf-ctp-row--has-warnings' : '');
 
       // data-ctp-code carries the mapped_code (row-identity key), not the
       // raw CTP — the click handler uses it verbatim to build the expansion
       // state key and must line up with _urssafCtpExpandKey's argument above.
       var parentRow = '<tr class="' + rowCls + '" data-action="toggle-urssaf-ctp" data-ctp-code="' + escapeHtml(expandKey) + '">'
         + '<td class="urssaf-ctp-table__chevron-col"><span class="urssaf-ctp-chevron">\u25b6</span></td>'
-        + '<td class="mono">' + escapeHtml(mappedCode) + '</td>'
-        + '<td>' + escapeHtml(row.label || NOT_AVAILABLE) + '</td>'
-        + '<td class="mono">' + declaredCell + '</td>'
-        + '<td class="mono">' + individualCell + '</td>'
-        + '<td class="mono">' + deltaCell + '</td>'
-        + '<td>' + rattachementBadge + '</td>'
+        + '<td class="urssaf-ctp-code">' + escapeHtml(mappedCode) + '</td>'
+        + '<td class="urssaf-ctp-label">' + escapeHtml(row.label || NOT_AVAILABLE) + '</td>'
+        + '<td class="col-num">' + declaredCell + '</td>'
+        + '<td class="col-num">' + individualCell + '</td>'
+        + '<td class="col-num">' + deltaCell + '</td>'
+        + '<td class="urssaf-ctp-rattachement">' + rattachementBadge + '</td>'
         + '</tr>';
 
-      // Row-level warnings (from UrssafCodeBreakdown.warnings) surface inside
-      // the parent row area so they stay visible even when collapsed.
-      var breakdownWarnings = (b && Array.isArray(b.warnings)) ? b.warnings : [];
-      var warningRow = '';
-      if (breakdownWarnings.length > 0) {
-        warningRow = '<tr class="detail-warning-row urssaf-ctp-warning-row">'
-          + '<td colspan="7">'
+      var expansionWarningsHtml = '';
+      if (hasWarnings) {
+        // One compact line per warning: icon + truncated text with full text
+        // on hover. Keeps the signal without the banner-sized footprint.
+        expansionWarningsHtml = '<div class="urssaf-expansion-warnings">'
           + breakdownWarnings.map(function (w) {
-              return '<div class="inline-warning">'
-                + '<span class="inline-warning__icon">&#9888;</span>'
-                + '<span class="inline-warning__text">' + escapeHtml(String(w)) + '</span>'
+              var full = String(w);
+              return '<div class="urssaf-expansion-warning" title="' + escapeHtml(full) + '">'
+                + '<span class="urssaf-expansion-warning__icon" aria-hidden="true">&#9888;</span>'
+                + '<span class="urssaf-expansion-warning__text">' + escapeHtml(full) + '</span>'
                 + '</div>';
             }).join("")
-          + '</td></tr>';
+          + '</div>';
       }
 
       // Expansion content is always rendered; visibility is controlled via
       // the ``hidden`` attribute so the click handler can toggle it via
       // direct DOM manipulation without a full re-render.
+      // Assiette sub-table (taux / montant / recalculé per variante) is
+      // intentionally hidden from the expansion for now — the information is
+      // redundant with the parent Déclaré column for most users and
+      // fragmented the visual rhythm. `_renderUrssafAssietteSubRows` is kept
+      // in the codebase so it can be re-enabled behind a toggle later.
       var expansionContent = '<tr class="urssaf-ctp-expansion"' + (expanded ? '' : ' hidden') + '>'
         + '<td colspan="7">'
         + '<div class="urssaf-ctp-expansion__content">'
-        + _renderUrssafAssietteSubRows(assietteDetails)
+        + expansionWarningsHtml
         + (b != null ? _renderUrssafEmployeesSubSection(b) : '')
         + '</div>'
         + '</td>'
         + '</tr>';
 
-      return parentRow + warningRow + expansionContent;
+      return parentRow + expansionContent;
     }).join("");
 
     // Count warnings on filtered-out rows so the user knows they exist.
@@ -1822,18 +1887,36 @@
         + '</div>'
       : '';
 
+    // When the filter is hiding reconciled rows, surface a muted, clickable
+    // footer hint so the user knows how many OK codes are tucked away and can
+    // expand the full list with one click — the full-width toolbar checkbox
+    // at the top handles the same action but a bottom hint reads as a natural
+    // "end of list" cue.
+    var hiddenOkCount = filterActive ? (totalCtps - visibleRows.length) : 0;
+    var hiddenOkHint = hiddenOkCount > 0
+      ? '<button type="button" class="urssaf-hidden-ok-hint"'
+        + ' data-action="toggle-ecarts-filter-off">'
+        + hiddenOkCount + ' code(s) r\u00e9concili\u00e9(s) masqu\u00e9(s) \u2014 '
+        + '<span class="urssaf-hidden-ok-hint__cta">afficher tout</span>'
+        + '</button>'
+      : '';
+
     return toolbar
       + '<div class="contrib-details-wrap">'
-      + '<table class="data-table urssaf-ctp-table" style="margin-top: var(--sp-4);">'
+      + '<table class="data-table urssaf-ctp-table">'
+      + URSSAF_CTP_COLGROUP
       + '<thead><tr>'
       + '<th class="urssaf-ctp-table__chevron-col"></th>'
       + '<th>Code</th><th>Libell\u00e9</th>'
-      + '<th>D\u00e9clar\u00e9</th><th>Individuel</th><th>Delta code</th>'
+      + '<th class="col-num">D\u00e9clar\u00e9</th>'
+      + '<th class="col-num">Individuel</th>'
+      + '<th class="col-num">Delta</th>'
       + '<th>Rattachement</th>'
       + '</tr></thead>'
       + '<tbody>' + bodyHtml + '</tbody>'
       + '</table>'
       + '</div>'
+      + hiddenOkHint
       + hiddenWarningNotice;
   }
 
@@ -2058,6 +2141,16 @@
   });
 
   $contribFamilyPanels.addEventListener("click", function (e) {
+    // Bottom-of-list hint that appears when the default "écarts only" filter
+    // is active and has hidden reconciled rows. One click flips the filter
+    // off and re-renders with everything visible.
+    var hideHint = e.target.closest("[data-action='toggle-ecarts-filter-off']");
+    if (hideHint) {
+      e.stopPropagation();
+      setState({ contribFilterEcartsOnly: false });
+      return;
+    }
+
     // Slice D: URSSAF CTP-level toggle takes precedence over the card-level
     // toggle because a CTP row lives inside a .contrib-item, so both
     // e.target.closest() calls would match the same click without this guard.

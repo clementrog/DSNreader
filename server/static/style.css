@@ -854,11 +854,20 @@ body[data-state="error"] #error-screen {
   letter-spacing: 0.05em;
   padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
 }
 
 .data-table td {
   padding: var(--sp-2) var(--sp-3);
   color: var(--color-text-primary);
+}
+
+/* Numeric columns: right-aligned + tabular digits so the collapsed, assiette,
+ * and employee tables all line up vertically on amount / rate columns. */
+.data-table th.col-num,
+.data-table td.col-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .data-table tbody tr:nth-child(even) {
@@ -1155,11 +1164,21 @@ body[data-state="error"] #error-screen {
   white-space: nowrap;
 }
 
+/* Shown on the card header in place of the loud "OK" pill when the aggregate
+ * reconciles but row-level warnings remain — restores the hierarchy
+ * (aggregate-ok / details-to-check) without the contradictory pill. */
+.contrib-summary__ok-with-warnings {
+  font-size: var(--fs-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
 /* ── Collapsible detail body ─────────────────────────────── */
 
 .contrib-detail-body {
-  padding: 0 var(--sp-5) var(--sp-5);
+  padding: var(--sp-5);
   background: var(--color-surface-inset);
+  border-top: 1px solid var(--color-border);
   transition: opacity 0.15s ease;
 }
 
@@ -1208,27 +1227,41 @@ body[data-state="error"] #error-screen {
   color: var(--color-error);
 }
 
+/* Previously a filled pill with tinted background. The fill made every row
+ * carry a loud colored chunk that fought for attention against the data.
+ * New form: a 6px status dot + muted uppercase label — same semantic
+ * colour signal, a fraction of the visual weight. The dot inherits the
+ * variant colour via `currentColor`. */
 .status-badge {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-size: var(--fs-sm);
-  font-weight: 600;
+  gap: 6px;
+  padding: 0;
+  background: transparent;
+  font-size: var(--fs-xs);
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   white-space: nowrap;
+  line-height: 1.4;
+}
+
+.status-badge::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
 }
 
 .status-badge--ok {
   color: var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 15%, transparent);
 }
 
 .status-badge--ecart {
   color: var(--color-error);
-  background: color-mix(in srgb, var(--color-error) 15%, transparent);
 }
 
 .status-badge--manquant,
@@ -1239,13 +1272,11 @@ body[data-state="error"] #error-screen {
 .status-badge--declared_only,
 .status-badge--computed_only {
   color: var(--color-warning);
-  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
 }
 
 .status-badge--non_rattache,
 .status-badge--non_calculable {
-  color: var(--color-text-secondary);
-  background: var(--color-surface-hover);
+  color: var(--color-text-tertiary);
 }
 
 /* Subtle status indicators for low-noise rows */
@@ -1304,8 +1335,22 @@ body[data-state="error"] #error-screen {
   color: var(--color-text-primary);
 }
 
+/* Stretch the CTP table edge-to-edge so the toolbar band (filter) above and
+ * the footer hint below sit as full-width bars on the card. */
 .contrib-details-wrap {
   overflow-x: auto;
+  margin-left: calc(var(--sp-5) * -1);
+  margin-right: calc(var(--sp-5) * -1);
+}
+
+.contrib-details-wrap .data-table th:first-child,
+.contrib-details-wrap .data-table td:first-child {
+  padding-left: var(--sp-5);
+}
+
+.contrib-details-wrap .data-table th:last-child,
+.contrib-details-wrap .data-table td:last-child {
+  padding-right: var(--sp-5);
 }
 
 .contrib-details-table {
@@ -1314,14 +1359,21 @@ body[data-state="error"] #error-screen {
 
 /* ── Contribution filter toolbar ────────────────────────── */
 
+/* Sits between the Agrégé/Bordereau kv-grid and the CTP table. Banded with
+ * top+bottom borders (stretched edge-to-edge via negative margins that
+ * counteract .contrib-detail-body's horizontal padding) so the card reads
+ * as three stacked sections (totals → toolbar → table) instead of a
+ * single wall of rows. */
 .contrib-filter-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-1);
-  margin-top: var(--sp-4);
-  margin-bottom: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+  margin: var(--sp-5) calc(var(--sp-5) * -1) 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-hover) 35%, transparent);
 }
 
 .contrib-filter-toggle {
@@ -1440,8 +1492,44 @@ body[data-state="error"] #error-screen {
 
 /* ── URSSAF CTP drill-down (Slice D) ─────────────────────── */
 
+/* Fixed column layout + explicit <colgroup> widths (see URSSAF_CTP_COLGROUP
+ * in app.js) lock the parent grid so expanding a row — whose expansion cell
+ * spans all 7 columns and hosts wider sub-tables — cannot rebalance the
+ * collapsed columns. Without this lock, content inside the expansion was
+ * pushing the parent cells narrower/wider on toggle. */
 .urssaf-ctp-table {
   min-width: 900px;
+  table-layout: fixed;
+}
+
+/* Code, label and rattachement cells: tighten overflow so long labels don't
+ * blow out the locked layout. All cells read in the single sans face
+ * (tabular digits via font-variant-numeric, not a separate mono family)
+ * so the card no longer shows two competing typefaces at once. */
+.urssaf-ctp-code {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Data-driven labels arrive uppercase from the CTP catalog (e.g.
+ * "RG CAS GENERAL"). Render them at reduced size + subtle tracking so they
+ * read as "caps data" consistent with the column header style above
+ * instead of shouting at body-text weight. */
+.urssaf-ctp-label {
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.urssaf-ctp-rattachement {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .urssaf-ctp-table__chevron-col {
@@ -1466,6 +1554,14 @@ body[data-state="error"] #error-screen {
   background: color-mix(in srgb, var(--color-error) 10%, transparent);
 }
 
+/* Subtle left accent on rows that carry a row-level warning. The full
+ * warning sentence lives inside the expanded state; this stripe is the only
+ * collapsed signal — calm enough to disappear on non-warned rows, visible
+ * enough to group warned ones visually. */
+.urssaf-ctp-row--has-warnings td:first-of-type {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--color-warning) 55%, transparent);
+}
+
 .urssaf-ctp-chevron {
   display: inline-block;
   font-size: var(--fs-xs);
@@ -1478,22 +1574,60 @@ body[data-state="error"] #error-screen {
   transform: rotate(90deg);
 }
 
-.urssaf-ctp-warning-row td {
-  padding: var(--sp-1) var(--sp-3);
-  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
-}
-
+/* Expansion panel — visually distinct from the collapsed table so the nested
+ * tables (assiette, salariés) don't read as a continuation of the parent grid.
+ * A distinct inset background, padding, and softer sub-table styling (see
+ * below) give the expansion its own "panel" identity. */
 .urssaf-ctp-expansion > td {
   padding: 0;
-  background: color-mix(in srgb, var(--color-surface) 60%, transparent);
   border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-inset) 55%, var(--color-surface));
 }
 
+/* Expansion content sits flush inside the colspan td so its sub-table(s)
+ * line up vertically with the parent CTP table columns. The inset td
+ * background (see .urssaf-ctp-expansion > td) gives the panel identity —
+ * we no longer need a border-left indent for that. */
 .urssaf-ctp-expansion__content {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
-  padding: var(--sp-4) var(--sp-5) var(--sp-5);
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0 var(--sp-4);
+}
+
+/* Compact row-level warning surfaced at the top of the expansion. Replaces
+ * the former full-width banner: a single line per warning, muted, with the
+ * full text available on hover — same signal, ~1/4 the vertical space. */
+.urssaf-expansion-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.urssaf-expansion-warning {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 4px var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--color-warning) 50%, transparent);
+  border-radius: 3px;
+  cursor: help;
+}
+
+.urssaf-expansion-warning__icon {
+  color: var(--color-warning);
+  font-size: 0.95em;
+  flex-shrink: 0;
+}
+
+.urssaf-expansion-warning__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .urssaf-sub-section {
@@ -1502,34 +1636,127 @@ body[data-state="error"] #error-screen {
   gap: var(--sp-2);
 }
 
+/* Matches .data-table th: same size, case, tracking, weight, color so the
+ * URSSAF card reads as one typographic system rather than many "caps"
+ * treatments competing for attention. */
 .urssaf-sub-section__title {
   font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-secondary);
+  letter-spacing: 0.05em;
+  color: var(--color-text-tertiary);
   margin: 0;
-  font-weight: 600;
+  font-weight: 500;
 }
 
+/* table-layout: fixed so the sub-table's own <colgroup> widths
+ * (see employeesColgroup in app.js) are honoured — the employee sub-table's
+ * columns are sized to line up vertically with the parent CTP table's
+ * columns (chevron / code+libellé / déclaré / individuel / delta+rattachement). */
 .urssaf-sub-table {
-  min-width: 0;
+  width: 100%;
   font-size: var(--fs-sm);
+  background: transparent;
+  table-layout: fixed;
 }
 
+/* Softer sub-table headers: smaller, non-uppercase, lighter — so the nested
+ * tables inside the expansion don't visually compete with the parent table's
+ * headers. */
 .urssaf-sub-table th {
   font-size: var(--fs-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-secondary);
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--color-text-tertiary);
   font-weight: 500;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
 }
 
 .urssaf-sub-table td {
   padding: var(--sp-2) var(--sp-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Lignes DSN cell: long "L1472, L1473, …" lists; let them truncate with
+ * ellipsis so the column never exceeds its allotted width. */
+.urssaf-lines-cell {
+  color: var(--color-text-tertiary);
+  font-size: var(--fs-xs);
+}
+
+/* Remove zebra striping inside expansion sub-tables — the expansion panel
+ * already has its own inset background, so double-striping reads as visual
+ * noise. Employee-table hover still provides row-level feedback. */
+.urssaf-sub-table tbody tr:nth-child(even) {
+  background: transparent;
 }
 
 .urssaf-employees-table tbody tr:hover {
+  background: color-mix(in srgb, var(--color-surface-hover) 70%, transparent);
+}
+
+/* Footer hint: when the default filter is hiding reconciled (OK) rows, an
+ * inline muted button at the bottom of the URSSAF table tells the user how
+ * many codes are tucked away and lets them flip the filter off. Reads as
+ * "end of list" — not a CTA — so it doesn't compete with écart rows above. */
+/* Full-width footer band at the bottom of the URSSAF card. Aggressive
+ * user-agent reset (appearance, outline, border) because the previous
+ * rule inherited default <button> chrome in some browsers, leaving a
+ * tight rectangular box around the text instead of stretching across
+ * the card. box-sizing + width:100% forces the correct footprint. */
+.urssaf-hidden-ok-hint {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+  margin-left: calc(var(--sp-5) * -1);
+  margin-right: calc(var(--sp-5) * -1);
+  margin-bottom: calc(var(--sp-5) * -1);
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--color-surface);
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  line-height: var(--lh);
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  /* Stretch beyond the padded parent (negative margins above) without
+   * shrinking to inline-content width. */
+  width: calc(100% + var(--sp-5) * 2);
+}
+
+.urssaf-hidden-ok-hint:hover {
   background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.urssaf-hidden-ok-hint:focus {
+  outline: none;
+}
+
+.urssaf-hidden-ok-hint:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.urssaf-hidden-ok-hint__cta {
+  color: var(--color-accent);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+.urssaf-hidden-ok-hint:hover .urssaf-hidden-ok-hint__cta {
+  color: var(--color-accent-hover);
 }
 
 .urssaf-ctp-empty-message {
@@ -1585,18 +1812,15 @@ body[data-state="error"] #error-screen {
   margin-bottom: var(--sp-1);
 }
 
-/* Inline "Non calculable" chip used in the Declared column when the URSSAF
- * aggregate isn't safely computable for this mapped row. */
-.cell-info {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-size: 0.9em;
-  font-style: italic;
-  color: var(--color-text-secondary);
-  background: color-mix(in srgb, var(--color-surface-hover) 60%, transparent);
-  border: 1px dashed color-mix(in srgb, var(--color-text-secondary) 30%, var(--color-border));
+/* Em-dash placeholder for "Non calculable" cells. A calm glyph replacing
+ * the former loud "Non calculable" chip — meaning preserved via the title
+ * tooltip. The dashed cursor signals there's info on hover. */
+.cell-na {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
   cursor: help;
+  text-decoration: underline dotted color-mix(in srgb, var(--color-text-tertiary) 50%, transparent);
+  text-underline-offset: 3px;
 }
 
 /* ── Sticky table header ─────────────────────────────────── */
