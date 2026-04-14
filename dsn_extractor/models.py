@@ -188,7 +188,8 @@ class EmployeeContributionBreakdown(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     employee_name: str
-    individual_code: str | None = None  # S21.G00.81.001
+    individual_code: str | None = None  # S21.G00.81.001 (first code, backward compat)
+    individual_codes: list[str] = Field(default_factory=list)
     amount: Decimal
     record_lines: list[int] = Field(default_factory=list)
 
@@ -212,6 +213,7 @@ class UrssafCodeBreakdown(BaseModel):
 
     ctp_code: str
     ctp_label: str | None = None
+    mapped_code: str | None = None  # Displayed code (e.g. "100D", "100P"); falls back to ctp_code
     individual_code: str | None = None  # Mapped S21.G00.81.001 code, when known
     mapping_status: str = "non_rattache"
     mapping_reason: str | None = None
@@ -219,7 +221,9 @@ class UrssafCodeBreakdown(BaseModel):
     excluded_individual_codes: list[dict] = Field(default_factory=list)
     declared_amount: Decimal | None = None  # Sum of CTP amounts across assiette variants
     individual_amount: Decimal | None = None  # Sum of S81.004 across employees
-    delta: Decimal | None = None  # declared_amount - individual_amount
+    delta: Decimal | None = None  # declared_amount - individual_amount (signed, for audit)
+    delta_within_unit: bool = False  # True when business tolerance is met at the euro
+    display_absolute: bool = False  # UI renders abs() of amounts and abs-based delta
     employees: list[EmployeeContributionBreakdown] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

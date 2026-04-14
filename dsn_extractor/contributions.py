@@ -403,30 +403,43 @@ def _build_urssaf_code_breakdowns(
     a warning is attached so the UI never presents a partial sum as if it
     were the full per-code declared total.
     """
-    # Preserve the order of first appearance in `details` so UI tables stay
-    # deterministic.
-    ordered_ctps: list[str] = []
-    declared_by_ctp: dict[str, Decimal | None] = {}
+    # Row identity is (ctp_code, mapped_code) so mixed-qualifier CTPs (e.g.
+    # 100 920/921 → 100D/100P) surface as distinct rows. ``mapped_code``
+    # falls back to ``ctp_code`` for CTPs without a qualifier split, which
+    # preserves byte-identical behaviour for single-qualifier rules.
+    ordered_keys: list[tuple[str, str]] = []
+    declared_by_row: dict[tuple[str, str], Decimal | None] = {}
     # Tracks only the raw declared amounts from S21.G00.23.005 (no computed
     # fallback). Used by sign-gated rules (668/669) which must read the
     # actual declared sign, not an inferred one from base × rate.
-    raw_declared_by_ctp: dict[str, Decimal | None] = {}
-    label_by_ctp: dict[str, str | None] = {}
-    # A CTP is "complete" only when every one of its contributing detail
+    raw_declared_by_row: dict[tuple[str, str], Decimal | None] = {}
+    label_by_row: dict[tuple[str, str], str | None] = {}
+    # A row is "complete" only when every one of its contributing detail
     # rows produced a chosen amount. Start optimistic, flip to False on the
     # first non-calculable variant seen.
-    complete_by_ctp: dict[str, bool] = {}
+    complete_by_row: dict[tuple[str, str], bool] = {}
+    # Qualifier set per row — derived from detail's own assiette_qualifier,
+    # NOT the global qualifiers_by_ctp. This is the component-scoping fix:
+    # 100D's individual side must only pull 920-scoped S81 sums, not the
+    # union of 920+921.
+    qualifiers_by_row: dict[tuple[str, str], set[str]] = {}
 
     for d in details:
         ctp = d.ctp_code or ""
         if not ctp:
             continue
-        if ctp not in declared_by_ctp:
-            ordered_ctps.append(ctp)
-            declared_by_ctp[ctp] = None
-            raw_declared_by_ctp[ctp] = None
-            label_by_ctp[ctp] = d.label
-            complete_by_ctp[ctp] = True
+        mapped = d.mapped_code or ctp
+        row_key = (ctp, mapped)
+        if row_key not in declared_by_row:
+            ordered_keys.append(row_key)
+            declared_by_row[row_key] = None
+            raw_declared_by_row[row_key] = None
+            label_by_row[row_key] = d.label
+            complete_by_row[row_key] = True
+            qualifiers_by_row[row_key] = set()
+
+        if d.assiette_qualifier:
+            qualifiers_by_row[row_key].add(d.assiette_qualifier)
 
         # Chosen amount per detail mirrors _compute_urssaf's ctp_amount logic.
         chosen: Decimal | None
@@ -438,104 +451,95 @@ def _build_urssaf_code_breakdowns(
             chosen = None
 
         if chosen is None:
-            # Any non-calculable variant downgrades the whole CTP collapse.
-            complete_by_ctp[ctp] = False
+            # Any non-calculable variant downgrades the whole row.
+            complete_by_row[row_key] = False
         else:
-            current = declared_by_ctp[ctp]
-            declared_by_ctp[ctp] = (current or Decimal(0)) + chosen
+            current = declared_by_row[row_key]
+            declared_by_row[row_key] = (current or Decimal(0)) + chosen
 
         # Track raw declared separately (only S21.G00.23.005 values).
         if d.declared_amount is not None:
-            cur_raw = raw_declared_by_ctp[ctp]
-            raw_declared_by_ctp[ctp] = (cur_raw or Decimal(0)) + d.declared_amount
+            cur_raw = raw_declared_by_row[row_key]
+            raw_declared_by_row[row_key] = (cur_raw or Decimal(0)) + d.declared_amount
 
     breakdowns: list[UrssafCodeBreakdown] = []
-    for ctp in ordered_ctps:
-        is_complete = complete_by_ctp.get(ctp, False)
-        # When the collapse is incomplete, suppress the per-code declared
+    for row_key in ordered_keys:
+        ctp, mapped = row_key
+        is_complete = complete_by_row.get(row_key, False)
+        # When the collapse is incomplete, suppress the per-row declared
         # total so the UI cannot read a misleading "full" amount. The
         # individual side (from S78/S81) is orthogonal and stays real.
-        declared = declared_by_ctp[ctp] if is_complete else None
-        label = label_by_ctp[ctp]
+        declared = declared_by_row[row_key] if is_complete else None
+        label = label_by_row[row_key]
         row_warnings: list[str] = []
         if not is_complete:
             row_warnings.append(_PARTIAL_CTP_WARNING)
 
         # Phase 2: Rule lookup and activation check.
         rule = get_rule(ctp)
-        if rule is None:
+        # display_absolute is the explicit reduction-family flag. It must be
+        # attached to every row emitted for this CTP — including non_rattache
+        # exits below — so reduction rows always render as absolute magnitudes
+        # in the UI, regardless of which phase refused them.
+        display_absolute = bool(rule is not None and rule.display_absolute)
+
+        def _emit_non_rattache(
+            reason: str,
+            *,
+            individual_code: str | None = None,
+            applied_codes: list[str] | None = None,
+            excluded: list[dict[str, str]] | None = None,
+        ) -> None:
             breakdowns.append(UrssafCodeBreakdown(
                 ctp_code=ctp,
                 ctp_label=label,
+                mapped_code=mapped,
+                individual_code=individual_code,
                 mapping_status="non_rattache",
-                mapping_reason="no_verified_mapping_rule",
+                mapping_reason=reason,
+                applied_individual_codes=applied_codes or [],
+                excluded_individual_codes=excluded or [],
                 declared_amount=declared,
+                display_absolute=display_absolute,
                 warnings=row_warnings,
             ))
+
+        if rule is None:
+            _emit_non_rattache("no_verified_mapping_rule")
             continue
 
         if not is_rule_active(rule):
-            breakdowns.append(UrssafCodeBreakdown(
-                ctp_code=ctp,
-                ctp_label=label,
-                mapping_status="non_rattache",
-                mapping_reason="rule_not_enabled",
-                declared_amount=declared,
-                warnings=row_warnings,
-            ))
+            _emit_non_rattache("rule_not_enabled")
             continue
 
         # Phase 3: Top-level condition check (for guarded rules).
         if rule.conditions.requires_insee_commune:
             if not insee_codes_by_ctp.get(ctp):
-                breakdowns.append(UrssafCodeBreakdown(
-                    ctp_code=ctp,
-                    ctp_label=label,
-                    mapping_status="non_rattache",
-                    mapping_reason="missing_runtime_condition",
-                    declared_amount=declared,
-                    warnings=row_warnings,
-                ))
+                _emit_non_rattache("missing_runtime_condition")
                 continue
         if rule.conditions.threshold_rule is not None:
-            breakdowns.append(UrssafCodeBreakdown(
-                ctp_code=ctp,
-                ctp_label=label,
-                mapping_status="non_rattache",
-                mapping_reason="missing_runtime_condition",
-                declared_amount=declared,
-                warnings=row_warnings,
-            ))
+            _emit_non_rattache("missing_runtime_condition")
             continue
 
         # Phase 3b: Sign condition check — uses only the raw declared amount
-        # from S21.G00.23.005, never a recomputed fallback.
+        # from S21.G00.23.005, never a recomputed fallback. For reduction
+        # rules flagged as display_absolute, the sign check is relaxed to an
+        # abs-value sanity check: any non-zero raw_declared passes, because
+        # these CTPs are compared and displayed on absolute magnitudes by
+        # product decision (the raw sign is not a business constraint).
         if rule.conditions.sign_condition is not None:
-            raw_declared = raw_declared_by_ctp.get(ctp)
+            raw_declared = raw_declared_by_row.get(row_key)
             if raw_declared is None or raw_declared == 0:
-                breakdowns.append(UrssafCodeBreakdown(
-                    ctp_code=ctp,
-                    ctp_label=label,
-                    mapping_status="non_rattache",
-                    mapping_reason="missing_sign_context",
-                    declared_amount=declared,
-                    warnings=row_warnings,
-                ))
+                _emit_non_rattache("missing_sign_context")
                 continue
-            sign_ok = (
-                (rule.conditions.sign_condition == "negative" and raw_declared < 0)
-                or (rule.conditions.sign_condition == "positive" and raw_declared > 0)
-            )
-            if not sign_ok:
-                breakdowns.append(UrssafCodeBreakdown(
-                    ctp_code=ctp,
-                    ctp_label=label,
-                    mapping_status="non_rattache",
-                    mapping_reason="sign_condition_not_met",
-                    declared_amount=declared,
-                    warnings=row_warnings,
-                ))
-                continue
+            if not rule.display_absolute:
+                sign_ok = (
+                    (rule.conditions.sign_condition == "negative" and raw_declared < 0)
+                    or (rule.conditions.sign_condition == "positive" and raw_declared > 0)
+                )
+                if not sign_ok:
+                    _emit_non_rattache("sign_condition_not_met")
+                    continue
 
         # Phase 4: S81 row scanning.
         included_rows: list[tuple[int, str, Decimal, list[int], str, str]] = []
@@ -543,8 +547,9 @@ def _build_urssaf_code_breakdowns(
         excluded_entries: list[dict[str, str]] = []
 
         if rule.components is not None:
-            # Path A: Component-scoped matching.
-            declared_qualifiers = qualifiers_by_ctp.get(ctp, set())
+            # Path A: Component-scoped matching. Qualifiers come from this
+            # row's own qualifier set — NOT the global qualifiers_by_ctp.
+            declared_qualifiers = qualifiers_by_row.get(row_key, set())
 
             # 4a-pre: Refuse if any S23 line for this CTP had an empty
             # qualifier. The collapsed declared amount includes the
@@ -552,14 +557,7 @@ def _build_urssaf_code_breakdowns(
             # qualifiers would compare a partial employee side against a
             # full declared total — violating the "no partial guess" rule.
             if ctps_with_empty_qualifier and ctp in ctps_with_empty_qualifier:
-                breakdowns.append(UrssafCodeBreakdown(
-                    ctp_code=ctp,
-                    ctp_label=label,
-                    mapping_status="non_rattache",
-                    mapping_reason="missing_declared_qualifier",
-                    declared_amount=declared,
-                    warnings=row_warnings,
-                ))
+                _emit_non_rattache("missing_declared_qualifier")
                 continue
 
             # 4a: Check for unsupported declared qualifiers.
@@ -568,30 +566,16 @@ def _build_urssaf_code_breakdowns(
                 supported_qualifiers |= comp.assiette_qualifiers_s23
             unsupported = declared_qualifiers - supported_qualifiers
             if unsupported:
-                breakdowns.append(UrssafCodeBreakdown(
-                    ctp_code=ctp,
-                    ctp_label=label,
-                    mapping_status="non_rattache",
-                    mapping_reason="unsupported_declared_qualifier",
-                    declared_amount=declared,
-                    warnings=row_warnings,
-                ))
+                _emit_non_rattache("unsupported_declared_qualifier")
                 continue
 
-            # 4b: Determine active components.
+            # 4b: Determine active components — scoped to this row's qualifier.
             active_components = [
                 comp for comp in rule.components
                 if declared_qualifiers & comp.assiette_qualifiers_s23
             ]
             if not active_components:
-                breakdowns.append(UrssafCodeBreakdown(
-                    ctp_code=ctp,
-                    ctp_label=label,
-                    mapping_status="non_rattache",
-                    mapping_reason="missing_declared_qualifier",
-                    declared_amount=declared,
-                    warnings=row_warnings,
-                ))
+                _emit_non_rattache("missing_declared_qualifier")
                 continue
 
             # 4c: Build combined acceptance set from active components.
@@ -668,72 +652,82 @@ def _build_urssaf_code_breakdowns(
 
         # If any candidate rows were dropped because the employee had no
         # S21.G00.40.007, the remaining rows (if any) represent only part
-        # of the eligible population.  Presenting that partial sum as a
-        # trustworthy "rattachable" total would violate the safety model,
-        # so we refuse the entire CTP regardless of whether some rows
-        # survived the filter.
+        # of the eligible population. Presenting that partial sum as a
+        # trustworthy "rattachable" total would violate the safety model.
         if status_filter_missing_context:
-            breakdowns.append(UrssafCodeBreakdown(
-                ctp_code=ctp,
-                ctp_label=label,
+            _emit_non_rattache(
+                "missing_employee_status_context",
                 individual_code=individual_code_display,
-                mapping_status="non_rattache",
-                mapping_reason="missing_employee_status_context",
-                applied_individual_codes=sorted(applied_codes),
-                excluded_individual_codes=excluded_entries,
-                declared_amount=declared,
-                warnings=row_warnings,
-            ))
+                applied_codes=sorted(applied_codes),
+                excluded=excluded_entries,
+            )
             continue
 
         if not included_rows:
             breakdowns.append(UrssafCodeBreakdown(
                 ctp_code=ctp,
                 ctp_label=label,
+                mapped_code=mapped,
                 individual_code=individual_code_display,
                 mapping_status="manquant_individuel",
                 mapping_reason="matched_rule",
                 applied_individual_codes=sorted(applied_codes),
                 excluded_individual_codes=excluded_entries,
                 declared_amount=declared,
+                display_absolute=display_absolute,
                 warnings=row_warnings,
             ))
             continue
 
-        # Aggregate by (employee_index, s81_code) — homonym-safe.
-        by_emp_code: dict[tuple[int, str], tuple[str, Decimal, list[int]]] = {}
+        # Aggregate by employee_index — one row per employee, with the
+        # contributing S81 codes surfaced as metadata.
+        by_emp: dict[int, tuple[str, Decimal, list[int], set[str]]] = {}
         for emp_idx, emp_name, amt, lines, _base, s81_code in included_rows:
-            key = (emp_idx, s81_code)
-            if key in by_emp_code:
-                prev_name, prev_amt, prev_lines = by_emp_code[key]
-                by_emp_code[key] = (prev_name, prev_amt + amt, prev_lines + lines)
+            if emp_idx in by_emp:
+                prev_name, prev_amt, prev_lines, prev_codes = by_emp[emp_idx]
+                by_emp[emp_idx] = (
+                    prev_name,
+                    prev_amt + amt,
+                    prev_lines + list(lines),
+                    prev_codes | {s81_code},
+                )
             else:
-                by_emp_code[key] = (emp_name, amt, list(lines))
+                by_emp[emp_idx] = (emp_name, amt, list(lines), {s81_code})
 
         individual_total = sum(
-            (amt for _, amt, _ in by_emp_code.values()),
+            (amt for _, amt, _, _ in by_emp.values()),
             Decimal(0),
         )
         employees = [
             EmployeeContributionBreakdown(
                 employee_name=name,
-                individual_code=s81_code,
+                individual_code=sorted(codes)[0] if codes else None,
+                individual_codes=sorted(codes),
                 amount=amt,
                 record_lines=rec_lines,
             )
-            for (idx, s81_code), (name, amt, rec_lines) in sorted(
-                by_emp_code.items(),
-                key=lambda item: (item[1][0], item[0][0]),
+            for idx, (name, amt, rec_lines, codes) in sorted(
+                by_emp.items(),
+                key=lambda item: (item[1][0], item[0]),
             )
         ]
 
         delta: Decimal | None = None
         if declared is not None:
             delta = declared - individual_total
+        if display_absolute:
+            # Business tolerance for reduction rows compares magnitudes.
+            delta_within_unit = _rounded_to_unit_ok(
+                abs(declared) if declared is not None else None,
+                abs(individual_total),
+            )
+        else:
+            delta_within_unit = _rounded_to_unit_ok(declared, individual_total)
 
         breakdowns.append(UrssafCodeBreakdown(
             ctp_code=ctp,
             ctp_label=label,
+            mapped_code=mapped,
             individual_code=individual_code_display,
             mapping_status="rattachable",
             mapping_reason="matched_rule",
@@ -742,6 +736,8 @@ def _build_urssaf_code_breakdowns(
             declared_amount=declared,
             individual_amount=individual_total,
             delta=delta,
+            delta_within_unit=delta_within_unit,
+            display_absolute=display_absolute,
             employees=employees,
             warnings=row_warnings,
         ))

@@ -1421,6 +1421,394 @@ class TestUrssafIndividualDrilldown:
 
 
 # ---------------------------------------------------------------------------
+# URSSAF 7-issue fix: display_absolute, split breakdowns, tolerance,
+# employee aggregation (2026 staging-v2 fixes).
+# ---------------------------------------------------------------------------
+
+
+class TestUrssafDisplayAbsoluteSourceOfTruth:
+    """display_absolute is the reduction-family flag carried from rule to
+    breakdown. When set:
+      - UI renders abs() of declared/individual/delta.
+      - delta_within_unit compares abs(declared) vs abs(individual).
+      - sign_condition is relaxed (abs-value sanity check only).
+    Signed values remain stored as-is for audit. The flag must attach on
+    every emit path, including non_rattache (e.g. missing_sign_context),
+    so the UI never leaks a raw negative.
+    """
+
+    @staticmethod
+    def _employee(*extra_records: DSNRecord, nom: str = "DUPONT",
+                  prenom: str = "Jean", empno: str = "1") -> EmployeeBlock:
+        base_line = 10
+        return _emp(
+            _r("S21.G00.30.001", empno, base_line),
+            _r("S21.G00.30.002", nom, base_line + 1),
+            _r("S21.G00.30.004", prenom, base_line + 2),
+            *extra_records,
+        )
+
+    @staticmethod
+    def _s78_s81(individual_code: str, amount: str, base_code: str = "03",
+                 start_line: int = 20) -> list[DSNRecord]:
+        return [
+            _r("S21.G00.78.001", base_code, start_line),
+            _r("S21.G00.78.004", "1000.00", start_line + 1),
+            _r("S21.G00.81.001", individual_code, start_line + 2),
+            _r("S21.G00.81.004", amount, start_line + 3),
+        ]
+
+    def _est_with_ctp(self, ctp: str, declared: str, assiette: str = "920",
+                      employees: list[EmployeeBlock] | None = None) -> EstablishmentBlock:
+        return _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", declared, 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", declared, 4),
+            _r("S21.G00.23.001", ctp, 5),
+            _r("S21.G00.23.002", assiette, 6),
+            _r("S21.G00.23.005", declared, 7),
+            employees=employees,
+        )
+
+    def _urssaf(self, est: EstablishmentBlock, *, reference_date: dt.date | None = None):
+        cc = compute_contribution_comparisons(est, reference_date=reference_date)
+        return [i for i in cc.items if i.family == "urssaf"][0]
+
+    # ---- Guarantee 1: signed values are not mutated ----------------------
+
+    def test_display_absolute_does_not_mutate_signed_values(self):
+        """Stored declared/individual/delta/employees amounts stay signed
+        as-DSN. The abs()-based render is a frontend concern."""
+        emp = self._employee(*self._s78_s81("018", "-120.00", base_code="03"))
+        urssaf = self._urssaf(self._est_with_ctp("668", "-120.00", employees=[emp]))
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "668"][0]
+        assert b.mapping_status == "rattachable"
+        assert b.declared_amount == Decimal("-120.00")
+        assert b.individual_amount == Decimal("-120.00")
+        assert b.delta == Decimal("0.00")
+        assert b.display_absolute is True
+        assert b.employees[0].amount == Decimal("-120.00")
+
+    # ---- Guarantee 2: tolerance uses abs for reduction rows ---------------
+
+    def test_display_absolute_tolerance_uses_absolute_magnitudes(self):
+        """For 003 with decl=+325, ind=-323.85 the signed delta is 648.85
+        but the business (abs) delta is 1.15 — still above 1€ so
+        delta_within_unit must be False. Compare with decl=+50, ind=-49.95
+        → abs delta 0.05, within_unit=True."""
+        # Case above 1€ in abs: not within_unit.
+        emp = self._employee(*self._s78_s81("114", "-323.85", base_code="03"))
+        urssaf = self._urssaf(self._est_with_ctp("003", "325.00", employees=[emp]))
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "003"][0]
+        assert b.delta == Decimal("648.85")  # signed, for audit
+        assert b.delta_within_unit is False
+
+        # Case within 1€ in abs (sub-1€ magnitude diff): within_unit True.
+        emp2 = self._employee(*self._s78_s81("114", "-49.95", base_code="03"))
+        urssaf2 = self._urssaf(self._est_with_ctp("003", "50.00", employees=[emp2]))
+        b2 = [x for x in urssaf2.urssaf_code_breakdowns if x.ctp_code == "003"][0]
+        assert b2.delta == Decimal("99.95")  # signed, 50 - (-49.95)
+        assert b2.delta_within_unit is True  # abs: |50| - |49.95| = 0.05
+
+    # ---- Guarantee 3: gate is relaxed for display_absolute rules ---------
+
+    def test_display_absolute_relaxes_sign_gate_on_668(self):
+        """Real DSN has 668 declared POSITIVE; with display_absolute the
+        row attaches instead of being refused by sign_condition."""
+        emp = self._employee(*self._s78_s81("018", "-120.00", base_code="03"))
+        urssaf = self._urssaf(self._est_with_ctp("668", "120.00", employees=[emp]))
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "668"][0]
+        assert b.mapping_status == "rattachable"
+        assert b.declared_amount == Decimal("120.00")
+        assert b.individual_amount == Decimal("-120.00")
+        assert b.display_absolute is True
+
+    def test_sign_gate_still_enforced_for_669(self):
+        """669 has sign_condition=positive and display_absolute=False, so
+        the existing sign gate is preserved: negative declared is refused."""
+        emp = self._employee(*self._s78_s81("018", "-50.00", base_code="03"))
+        urssaf = self._urssaf(self._est_with_ctp("669", "-50.00", employees=[emp]))
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "669"][0]
+        assert b.mapping_status == "non_rattache"
+        assert b.mapping_reason == "sign_condition_not_met"
+        assert b.display_absolute is False
+
+    # ---- Guarantee 4: coverage on non_rattache rows ----------------------
+
+    def test_display_absolute_applies_on_missing_sign_context(self):
+        """668 with zero declared still exits via missing_sign_context;
+        the row must still carry display_absolute=True for the UI."""
+        emp = self._employee(*self._s78_s81("018", "0.00", base_code="03"))
+        urssaf = self._urssaf(self._est_with_ctp("668", "0.00", employees=[emp]))
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "668"][0]
+        assert b.mapping_reason == "missing_sign_context"
+        assert b.display_absolute is True
+
+    # ---- Guarantee 5: default-off on non-reduction CTPs -------------------
+
+    def test_display_absolute_false_by_default(self):
+        """669 (sign=positive) and 959 (no sign condition) remain
+        display_absolute=False — the flag is scoped to the reduction family."""
+        emp669 = self._employee(*self._s78_s81("018", "50.00", base_code="03"))
+        urssaf669 = self._urssaf(self._est_with_ctp("669", "50.00", employees=[emp669]))
+        b669 = [x for x in urssaf669.urssaf_code_breakdowns if x.ctp_code == "669"][0]
+        assert b669.display_absolute is False
+
+        emp959 = self._employee(*self._s78_s81("128", "48.00", base_code="03"))
+        urssaf959 = self._urssaf(self._est_with_ctp("959", "48.00", employees=[emp959]))
+        b959 = [x for x in urssaf959.urssaf_code_breakdowns if x.ctp_code == "959"][0]
+        assert b959.display_absolute is False
+
+    def test_display_absolute_true_for_003_004_668(self):
+        emp003 = self._employee(*self._s78_s81("114", "-323.85", base_code="03"))
+        urssaf003 = self._urssaf(self._est_with_ctp("003", "325.00", employees=[emp003]))
+        b003 = [x for x in urssaf003.urssaf_code_breakdowns if x.ctp_code == "003"][0]
+        assert b003.display_absolute is True
+
+        emp004 = self._employee(*self._s78_s81("021", "-153.06", base_code="03"))
+        urssaf004 = self._urssaf(self._est_with_ctp("004", "151.00", employees=[emp004]))
+        b004 = [x for x in urssaf004.urssaf_code_breakdowns if x.ctp_code == "004"][0]
+        assert b004.display_absolute is True
+
+        emp668 = self._employee(*self._s78_s81("018", "-120.00", base_code="03"))
+        urssaf668 = self._urssaf(self._est_with_ctp("668", "120.00", employees=[emp668]))
+        b668 = [x for x in urssaf668.urssaf_code_breakdowns if x.ctp_code == "668"][0]
+        assert b668.display_absolute is True
+
+
+class TestUrssafMappedCodeSplit:
+    """1.3/1.4/1.5: per-mapped-code row identity, tolerance flag, employee
+    aggregation. Provide a reference_date so lookup_ctp_reference supplies
+    D/P suffixes for CTP 100 — without that, mapped_code falls back to
+    ctp_code and the split collapses to today's behavior (still asserted
+    below for single-qualifier CTPs)."""
+
+    REFERENCE_DATE = dt.date(2025, 1, 1)
+
+    @staticmethod
+    def _employee(*extra_records: DSNRecord, nom: str = "DUPONT",
+                  prenom: str = "Jean", empno: str = "1",
+                  contract_nature: str | None = "01") -> EmployeeBlock:
+        base_line = 10
+        base_records = [
+            _r("S21.G00.30.001", empno, base_line),
+            _r("S21.G00.30.002", nom, base_line + 1),
+            _r("S21.G00.30.004", prenom, base_line + 2),
+        ]
+        if contract_nature:
+            base_records.append(_r("S21.G00.40.007", contract_nature, base_line + 3))
+        return _emp(*base_records, *extra_records)
+
+    @staticmethod
+    def _s78_s81(individual_code: str, amount: str, base_code: str = "03",
+                 start_line: int = 20) -> list[DSNRecord]:
+        return [
+            _r("S21.G00.78.001", base_code, start_line),
+            _r("S21.G00.78.004", "1000.00", start_line + 1),
+            _r("S21.G00.81.001", individual_code, start_line + 2),
+            _r("S21.G00.81.004", amount, start_line + 3),
+        ]
+
+    def _urssaf(self, est: EstablishmentBlock):
+        cc = compute_contribution_comparisons(est, reference_date=self.REFERENCE_DATE)
+        return [i for i in cc.items if i.family == "urssaf"][0]
+
+    def _est_with_ctp_100_split(self, declared_920: str, declared_921: str,
+                                employees: list[EmployeeBlock] | None = None):
+        total = str(Decimal(declared_920) + Decimal(declared_921))
+        return _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", total, 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", total, 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", declared_920, 7),
+            _r("S21.G00.23.001", "100", 8),
+            _r("S21.G00.23.002", "921", 9),
+            _r("S21.G00.23.005", declared_921, 10),
+            employees=employees,
+        )
+
+    # ---- 1.4 tolerance ----------------------------------------------------
+
+    def test_urssaf_sub_1eur_delta_marks_within_unit(self):
+        """027 with declared 7.05 / individual 7.07 → delta_within_unit True."""
+        emp = self._employee(*self._s78_s81("100", "7.07", base_code="03"))
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "7.05", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "7.05", 4),
+            _r("S21.G00.23.001", "027", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "7.05", 7),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "027"][0]
+        assert b.mapping_status == "rattachable"
+        assert b.declared_amount == Decimal("7.05")
+        assert b.individual_amount == Decimal("7.07")
+        assert b.delta == Decimal("-0.02")
+        assert b.delta_within_unit is True
+
+    def test_urssaf_delta_above_1eur_not_within_unit(self):
+        emp = self._employee(*self._s78_s81("128", "10.00", base_code="03"))
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "11.50", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "11.50", 4),
+            _r("S21.G00.23.001", "959", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "11.50", 7),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "959"][0]
+        assert b.delta == Decimal("1.50")
+        assert b.delta_within_unit is False
+
+    # ---- 1.3 split --------------------------------------------------------
+
+    def test_urssaf_splits_100_into_D_and_P(self):
+        """CTP 100 with qualifiers 920+921 produces two breakdowns with
+        mapped_code 100D and 100P, each with qualifier-scoped individual."""
+        emp = self._employee(
+            *self._s78_s81("045", "100.00", base_code="03", start_line=20),
+            *self._s78_s81("076", "50.00", base_code="02", start_line=30),
+        )
+        est = self._est_with_ctp_100_split("100.00", "50.00", employees=[emp])
+        urssaf = self._urssaf(est)
+
+        bs = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "100"]
+        mapped = {b.mapped_code for b in bs}
+        assert mapped == {"100D", "100P"}, f"got {mapped}"
+
+        b_d = [b for b in bs if b.mapped_code == "100D"][0]
+        b_p = [b for b in bs if b.mapped_code == "100P"][0]
+        assert b_d.declared_amount == Decimal("100.00")
+        assert b_d.individual_amount == Decimal("100.00")
+        assert b_p.declared_amount == Decimal("50.00")
+        assert b_p.individual_amount == Decimal("50.00")
+
+    def test_urssaf_100D_individual_excludes_921_s81(self):
+        """Component-scoping: 100D's individual must NOT pull 076-base02 sums.
+        Without qualifier-per-row scoping, 076-base02 (which matches the
+        921 component) would leak into the 100D row."""
+        emp = self._employee(
+            *self._s78_s81("045", "100.00", base_code="03", start_line=20),
+            *self._s78_s81("076", "999.00", base_code="02", start_line=30),
+        )
+        est = self._est_with_ctp_100_split("100.00", "0.00", employees=[emp])
+        urssaf = self._urssaf(est)
+
+        bs = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "100"]
+        b_d = [b for b in bs if b.mapped_code == "100D"][0]
+        assert b_d.individual_amount == Decimal("100.00")
+        assert "076" not in b_d.applied_individual_codes
+
+    def test_urssaf_100D_no_declared_still_rattachable(self):
+        """AT_RATE_ONLY_CTPS blocks recompute for 100/920 (.005 absent).
+        The D row must still surface as rattachable with its component-
+        scoped individual_amount and declared_amount=None."""
+        emp = self._employee(
+            *self._s78_s81("045", "80.00", base_code="03", start_line=20),
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "100.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "100.00", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            # No S21.G00.23.005 — AT rate only
+            _r("S21.G00.23.003", "0.71", 7),
+            _r("S21.G00.23.004", "10000.00", 8),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        bs = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "100"]
+        b_d = [b for b in bs if b.mapped_code == "100D"][0]
+        assert b_d.mapping_status == "rattachable"
+        assert b_d.declared_amount is None
+        assert b_d.individual_amount == Decimal("80.00")
+        assert b_d.delta is None
+
+    def test_urssaf_single_qualifier_ctp_unchanged(self):
+        """Single-qualifier CTPs produce exactly one row (no D/P split)."""
+        emp = self._employee(*self._s78_s81("128", "48.00", base_code="03"))
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "48.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "48.00", 4),
+            _r("S21.G00.23.001", "959", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "48.00", 7),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        bs = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "959"]
+        assert len(bs) == 1, "single-qualifier CTP must not split"
+        assert bs[0].individual_amount == Decimal("48.00")
+
+    # ---- 1.5 employee aggregation ----------------------------------------
+
+    def test_urssaf_employee_aggregated_by_employee_total(self):
+        """Two S81 codes for the same employee under 100 collapse into one
+        row with summed amount and union of individual_codes."""
+        emp = self._employee(
+            *self._s78_s81("045", "40.00", base_code="03", start_line=20),
+            *self._s78_s81("068", "60.00", base_code="03", start_line=30),
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "100.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "100.00", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "100.00", 7),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "100"][0]
+        assert len(b.employees) == 1
+        emp_row = b.employees[0]
+        assert emp_row.amount == Decimal("100.00")
+        assert emp_row.individual_codes == ["045", "068"]
+        assert emp_row.individual_code == "045"  # first of sorted codes
+
+    def test_urssaf_668_attaches_to_s81_018(self):
+        """668 with negative raw_declared: rattachable, display_absolute=True,
+        employee sum equals the signed S81 018 amount."""
+        emp = self._employee(
+            *self._s78_s81("018", "-120.00", base_code="03"),
+            contract_nature=None,
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "-120.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "-120.00", 4),
+            _r("S21.G00.23.001", "668", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "-120.00", 7),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "668"][0]
+        assert b.mapping_status == "rattachable"
+        assert b.mapped_code == "668"  # flat rule, no D/P suffix
+        assert b.display_absolute is True
+        assert b.individual_amount == Decimal("-120.00")
+        assert b.employees[0].individual_codes == ["018"]
+
+
+# ---------------------------------------------------------------------------
 # New validated mapping runtime tests (V1.1)
 # ---------------------------------------------------------------------------
 
@@ -1732,14 +2120,20 @@ class TestNewMappingRuntime:
         assert b.mapping_status == "rattachable"
         assert b.individual_amount == Decimal("-120.00")
 
-    def test_ctp_668_positive_amount_refused(self):
+    def test_ctp_668_positive_amount_now_attaches(self):
+        """668 is display_absolute: the sign gate is relaxed, so a positive
+        raw_declared no longer refuses the row. Real DSNs emit 668's .005 as
+        a positive magnitude even though the reduction is conceptually negative;
+        the engine must attach and let the UI render abs() on both sides."""
         emp = self._employee(
-            *self._s78_with_s81("018", "120.00", base_code="03"),
+            *self._s78_with_s81("018", "-120.00", base_code="03"),
         )
         urssaf = self._get_urssaf(self._est_with_ctp("668", "120.00", employees=[emp]))
         b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "668"][0]
-        assert b.mapping_status == "non_rattache"
-        assert b.mapping_reason == "sign_condition_not_met"
+        assert b.mapping_status == "rattachable"
+        assert b.declared_amount == Decimal("120.00")
+        assert b.individual_amount == Decimal("-120.00")
+        assert b.display_absolute is True
 
     def test_ctp_668_zero_amount_refused(self):
         emp = self._employee(

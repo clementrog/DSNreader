@@ -68,6 +68,15 @@ class UrssafMappingRule:
     confidence: str = "high"
     product_status: str = "enabled"  # enabled | guarded | expert_pending | excluded
     source_refs: tuple[str, ...] = ()
+    # Reduction-family display/matching flag. When True:
+    #   - UI renders declared, individual, delta as absolute magnitudes.
+    #   - delta_within_unit (business tolerance) compares abs(declared)
+    #     against abs(individual).
+    #   - sign_condition is relaxed to an abs-value sanity check (the row
+    #     still refuses when raw_declared is missing/0).
+    # Signed amounts remain stored as-is for audit. Scoped to the known
+    # reduction CTPs (003/004/668) — not a global convention.
+    display_absolute: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +245,7 @@ _RULES: dict[str, UrssafMappingRule] = {
         confidence="high",
         product_status="enabled",
         source_refs=("validation Thomas",),
+        display_absolute=True,
     ),
     # ---- CTP 669: Régul réduction générale étendue (sign-gated, positive)
     "669": UrssafMappingRule(
@@ -338,6 +348,7 @@ _RULES: dict[str, UrssafMappingRule] = {
         confidence="high",
         product_status="enabled",
         source_refs=("validation Thomas",),
+        display_absolute=True,
     ),
     # ---- CTP 004: Déduction patronale heures sup (1:1) --------------------
     "004": UrssafMappingRule(
@@ -349,6 +360,7 @@ _RULES: dict[str, UrssafMappingRule] = {
         confidence="high",
         product_status="enabled",
         source_refs=("validation Thomas",),
+        display_absolute=True,
     ),
     # ---- CTP 027: Dialogue social (validated) -----------------------------
     "027": UrssafMappingRule(
