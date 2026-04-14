@@ -78,10 +78,35 @@ def _within_tolerance(a: Decimal | None, b: Decimal | None, tol: Decimal) -> boo
 
 
 def _rounded_to_unit_ok(a: Decimal | None, b: Decimal | None) -> bool:
-    """Return True if abs(a - b) rounds to 0 at the euro level."""
+    """Return True if abs(a - b) rounds to 0 at the euro level.
+
+    Used by non-URSSAF-per-code reconciliations (PAS status, Ctrl1/Ctrl2).
+    URSSAF per-code rows use ``_urssaf_row_delta_within_unit`` instead, which
+    implements the product-confirmed literal ``abs(delta) < 1.00€`` policy.
+    """
     if a is None or b is None:
         return False
     return abs(a - b).quantize(Decimal("1"), rounding=ROUND_HALF_UP) == 0
+
+
+_URSSAF_ROW_EUR_TOL = Decimal("1.00")
+
+
+def _urssaf_row_delta_within_unit(a: Decimal | None, b: Decimal | None) -> bool:
+    """URSSAF per-code tolerance — strict ``abs(a - b) < 1.00€``.
+
+    Confirmed product policy for the per-CTP rattachement UX:
+      - ``abs(delta) < 1.00€`` → row is OK (no badge, no filter surface).
+      - ``abs(delta) >= 1.00€`` → row is an issue.
+
+    Intentionally strict at the 1.00 boundary: a 1.00€ delta is surfaced so
+    the payroll admin sees the drift. This replaces the prior
+    ``_rounded_to_unit_ok`` behaviour, which rounded at half and therefore
+    treated e.g. 0.74€ as an issue — rejected by product.
+    """
+    if a is None or b is None:
+        return False
+    return abs(a - b) < _URSSAF_ROW_EUR_TOL
 
 
 REGULARIZATION_WARNING = (
@@ -717,12 +742,12 @@ def _build_urssaf_code_breakdowns(
             delta = declared - individual_total
         if display_absolute:
             # Business tolerance for reduction rows compares magnitudes.
-            delta_within_unit = _rounded_to_unit_ok(
+            delta_within_unit = _urssaf_row_delta_within_unit(
                 abs(declared) if declared is not None else None,
                 abs(individual_total),
             )
         else:
-            delta_within_unit = _rounded_to_unit_ok(declared, individual_total)
+            delta_within_unit = _urssaf_row_delta_within_unit(declared, individual_total)
 
         breakdowns.append(UrssafCodeBreakdown(
             ctp_code=ctp,

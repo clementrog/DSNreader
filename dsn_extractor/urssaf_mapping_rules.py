@@ -70,8 +70,8 @@ class UrssafMappingRule:
     source_refs: tuple[str, ...] = ()
     # Reduction-family display/matching flag. When True:
     #   - UI renders declared, individual, delta as absolute magnitudes.
-    #   - delta_within_unit (business tolerance) compares abs(declared)
-    #     against abs(individual).
+    #   - delta_within_unit (strict abs(delta) < 1.00€ policy) compares
+    #     abs(declared) against abs(individual).
     #   - sign_condition is relaxed to an abs-value sanity check (the row
     #     still refuses when raw_declared is missing/0).
     # Signed amounts remain stored as-is for audit. Scoped to the known

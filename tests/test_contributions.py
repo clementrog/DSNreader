@@ -1511,6 +1511,21 @@ class TestUrssafDisplayAbsoluteSourceOfTruth:
         assert b2.delta == Decimal("99.95")  # signed, 50 - (-49.95)
         assert b2.delta_within_unit is True  # abs: |50| - |49.95| = 0.05
 
+    def test_display_absolute_tolerance_boundary_one_euro(self):
+        """Strict abs(delta) < 1.00€ also holds on the display_absolute path.
+        abs_delta=1.00 → issue; abs_delta=0.99 → OK."""
+        # abs(|50| - |-51.00|) = 1.00 → NOT within_unit.
+        emp_at = self._employee(*self._s78_s81("114", "-51.00", base_code="03"))
+        urssaf_at = self._urssaf(self._est_with_ctp("003", "50.00", employees=[emp_at]))
+        b_at = [x for x in urssaf_at.urssaf_code_breakdowns if x.ctp_code == "003"][0]
+        assert b_at.delta_within_unit is False
+
+        # abs(|50| - |-50.74|) = 0.74 → within_unit (the 772D-style case).
+        emp_under = self._employee(*self._s78_s81("114", "-50.74", base_code="03"))
+        urssaf_under = self._urssaf(self._est_with_ctp("003", "50.00", employees=[emp_under]))
+        b_under = [x for x in urssaf_under.urssaf_code_breakdowns if x.ctp_code == "003"][0]
+        assert b_under.delta_within_unit is True
+
     # ---- Guarantee 3: gate is relaxed for display_absolute rules ---------
 
     def test_display_absolute_relaxes_sign_gate_on_668(self):
@@ -1670,6 +1685,49 @@ class TestUrssafMappedCodeSplit:
         b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "959"][0]
         assert b.delta == Decimal("1.50")
         assert b.delta_within_unit is False
+
+    @pytest.mark.parametrize(
+        "declared,individual,expected",
+        [
+            # Product policy: abs(delta) < 1.00€ is OK; >= 1.00€ is an issue.
+            ("10.00", "10.74", True),   # +0.74 → OK (772D-style case)
+            ("10.00", "10.99", True),   # +0.99 → OK
+            ("10.00", "11.00", False),  # +1.00 → issue (strict boundary)
+            ("10.00", "11.15", False),  # +1.15 → issue
+            ("10.00",  "9.26", True),   # -0.74 → OK
+            ("10.00",  "9.01", True),   # -0.99 → OK
+            ("10.00",  "9.00", False),  # -1.00 → issue
+            ("10.00",  "8.50", False),  # -1.50 → issue
+            ("10.00", "10.50", True),   # +0.50 → OK (this is the key regression:
+                                        # old "round-half-up" rule flagged 0.50 as
+                                        # an issue; new strict <1€ rule is OK).
+        ],
+    )
+    def test_urssaf_delta_within_unit_strict_under_one_euro(
+        self, declared, individual, expected,
+    ):
+        """``abs(declared - individual) < 1.00€`` is OK. At/above 1.00€ is an
+        issue. Covers the thresholds the product explicitly called out:
+        0.74€ / 0.99€ = OK, 1.00€ = issue, with symmetric negative deltas."""
+        emp = self._employee(*self._s78_s81("128", individual, base_code="03"))
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", declared, 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", declared, 4),
+            _r("S21.G00.23.001", "959", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", declared, 7),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "959"][0]
+        assert b.delta_within_unit is expected, (
+            f"declared={declared} individual={individual} delta={b.delta} "
+            f"expected within_unit={expected}, got {b.delta_within_unit}"
+        )
+        # Raw delta is never mutated by the tolerance policy.
+        assert b.delta == Decimal(declared) - Decimal(individual)
 
     # ---- 1.3 split --------------------------------------------------------
 

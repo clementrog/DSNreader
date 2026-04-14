@@ -1565,6 +1565,40 @@ body[data-state="error"] #error-screen {
   border-radius: 3px;
 }
 
+/* Informational note rendered above the salariés table when the URSSAF
+ * declared amount is intentionally unavailable (AT-rate-only D rows etc). */
+.urssaf-info-note {
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--color-accent, var(--color-text-secondary)) 25%, var(--color-border));
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-surface-hover) 45%, transparent);
+  color: var(--color-text-secondary);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.urssaf-info-note strong {
+  color: var(--color-text-primary);
+  display: block;
+  margin-bottom: var(--sp-1);
+}
+
+/* Inline "Non calculable" chip used in the Declared column when the URSSAF
+ * aggregate isn't safely computable for this mapped row. */
+.cell-info {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-style: italic;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-surface-hover) 60%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--color-text-secondary) 30%, var(--color-border));
+  cursor: help;
+}
+
 /* ── Sticky table header ─────────────────────────────────── */
 
 .contrib-details-table thead th,

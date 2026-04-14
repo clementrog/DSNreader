@@ -222,7 +222,7 @@ class UrssafCodeBreakdown(BaseModel):
     declared_amount: Decimal | None = None  # Sum of CTP amounts across assiette variants
     individual_amount: Decimal | None = None  # Sum of S81.004 across employees
     delta: Decimal | None = None  # declared_amount - individual_amount (signed, for audit)
-    delta_within_unit: bool = False  # True when business tolerance is met at the euro
+    delta_within_unit: bool = False  # True when abs(delta) < 1.00€ (URSSAF row policy)
     display_absolute: bool = False  # UI renders abs() of amounts and abs-based delta
     employees: list[EmployeeContributionBreakdown] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

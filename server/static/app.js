@@ -1497,10 +1497,13 @@
           + 'Ce CTP est reconnu mais aucun qualifiant d\u2019assiette exploitable '
           + 'n\u2019a \u00e9t\u00e9 trouv\u00e9 dans cette DSN.';
       } else {
-        reasonText = '<strong>CTP non rattach\u00e9.</strong> Aucun lien fiable n\u2019est d\u00e9fini '
-          + 'entre ce code et un code de cotisation individuelle (S21.G00.81.001). '
-          + 'La ventilation par salari\u00e9 n\u2019est donc pas affich\u00e9e pour respecter '
-          + 'la r\u00e8gle de rattachement strict.';
+        // no_verified_mapping_rule — e.g. CTP 430D.
+        reasonText = '<strong>Mapping salari\u00e9 non encore confirm\u00e9 pour ce code.</strong> '
+          + 'Le montant d\u00e9clar\u00e9 au niveau de l\u2019\u00e9tablissement est bien lu, mais '
+          + 'aucun lien v\u00e9rifi\u00e9 ne relie pour l\u2019instant ce CTP \u00e0 une cotisation '
+          + 'individuelle salari\u00e9 (<code>S21.G00.81</code>). '
+          + 'Le d\u00e9tail par salari\u00e9 est donc volontairement masqu\u00e9 — il sera '
+          + 'ajout\u00e9 lorsque la correspondance aura \u00e9t\u00e9 valid\u00e9e.';
       }
       return '<div class="urssaf-sub-section">'
         + '<h5 class="urssaf-sub-section__title">Salari\u00e9s</h5>'
@@ -1511,14 +1514,20 @@
     }
 
     if (status === 'manquant_individuel') {
+      // e.g. CTP 635D — mapping known, but the expected S81 code is absent
+      // from this DSN's employee blocks. Distinct from non_rattache (430D):
+      // here the link is validated, only the data is missing.
       return '<div class="urssaf-sub-section">'
         + '<h5 class="urssaf-sub-section__title">Salari\u00e9s</h5>'
         + '<div class="urssaf-ctp-empty-message urssaf-ctp-empty-message--missing">'
-        + '<strong>D\u00e9tail individuel non trouv\u00e9.</strong> Ce CTP est rattachable '
-        + '(code individuel attendu\u00a0: '
+        + '<strong>Lignes salari\u00e9s attendues mais absentes de cette DSN.</strong> '
+        + 'La correspondance entre ce CTP et une cotisation individuelle est connue '
+        + '(code attendu\u00a0: <code>'
         + escapeHtml(breakdown.individual_code || '?')
-        + ') mais aucune ligne <code>S21.G00.81</code> correspondante n\u2019a \u00e9t\u00e9 '
-        + 'trouv\u00e9e dans les salari\u00e9s de cet \u00e9tablissement.'
+        + '</code>), mais aucune ligne <code>S21.G00.81</code> correspondante n\u2019a '
+        + '\u00e9t\u00e9 trouv\u00e9e chez les salari\u00e9s de cet \u00e9tablissement. '
+        + 'La ventilation par salari\u00e9 n\u2019est donc pas affich\u00e9e — c\u2019est un '
+        + 'manque de donn\u00e9e dans la DSN, pas une mapping manquante.'
         + '</div>'
         + '</div>';
     }
@@ -1563,8 +1572,24 @@
       ? ' &mdash; codes S81 appliqu\u00e9s\u00a0: ' + breakdown.applied_individual_codes.map(escapeHtml).join(', ')
       : '';
 
+    // Rattachable rows with no declared amount (typically AT-rate-only D
+    // variants like 100D / 726D / 863D) are not broken — the URSSAF side just
+    // doesn't expose a safely computable aggregate. Flag this explicitly so
+    // the user doesn't read the absence as a bug.
+    var declaredNote = '';
+    if (breakdown.declared_amount == null) {
+      declaredNote = '<div class="urssaf-info-note">'
+        + '<strong>Montant d\u00e9clar\u00e9 URSSAF non disponible pour cette variante.</strong> '
+        + 'Ce code expose ici uniquement le contexte d\u00e9claratif (assiette et taux), '
+        + 'par exemple les lignes AT d\u00e9clar\u00e9es par taux seul. '
+        + 'Le d\u00e9tail salari\u00e9 ci-dessous reste fiable ; aucun montant agr\u00e9g\u00e9 n\u2019a '
+        + '\u00e9t\u00e9 reconstitu\u00e9 pour \u00e9viter toute valeur fantaisiste.'
+        + '</div>';
+    }
+
     return '<div class="urssaf-sub-section">'
       + '<h5 class="urssaf-sub-section__title">Salari\u00e9s (' + employees.length + ')' + appliedCodes + '</h5>'
+      + declaredNote
       + '<table class="data-table urssaf-sub-table urssaf-employees-table">'
       + '<thead><tr>'
       + '<th>Salari\u00e9</th><th>Code S81</th><th>Montant</th><th>Lignes DSN</th>'
@@ -1693,9 +1718,21 @@
       // present. For display_absolute rows, helpers render positive magnitudes
       // and recompute the business delta from the abs values (so the number in
       // the "Delta code" column matches what the payroll admin is comparing).
-      var declaredCell = b != null
-        ? escapeHtml(formatAmount(_displayedAmount(b, b.declared_amount)))
-        : escapeHtml(formatAmount(null));
+      var declaredCell;
+      if (b != null && b.declared_amount == null && b.mapping_status === 'rattachable') {
+        // AT-rate-only D rows (100D / 726D / 863D …) and any other
+        // single-variant row where .005 isn't declared. We intentionally do
+        // not fabricate an aggregate amount here; show an explicit label so
+        // the "N.C." doesn't look like a bug.
+        declaredCell = '<span class="cell-info"'
+          + ' title="Le montant d\u00e9clar\u00e9 URSSAF (S21.G00.23.005) n\u2019est pas disponible'
+          + ' pour cette variante (par ex. lignes AT d\u00e9clar\u00e9es par taux seul).'
+          + ' Le d\u00e9tail salari\u00e9 reste consultable.">Non calculable</span>';
+      } else if (b != null) {
+        declaredCell = escapeHtml(formatAmount(_displayedAmount(b, b.declared_amount)));
+      } else {
+        declaredCell = escapeHtml(formatAmount(null));
+      }
       var individualCell = b != null
         ? escapeHtml(formatAmount(_displayedAmount(b, b.individual_amount)))
         : escapeHtml(formatAmount(null));
