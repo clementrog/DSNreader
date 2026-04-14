@@ -337,8 +337,8 @@ def _compute_pas(
 #: Applied here at the per-CTP level when one assiette variant is calculable
 #: and another is not, so the collapsed row never advertises a partial total.
 _PARTIAL_CTP_WARNING = (
-    "Sous-total CTP non affiché : au moins une variante d'assiette n'est "
-    "pas calculable à partir de la DSN seule."
+    "Sous-total CTP non affiché : certaines variantes d'assiette ne peuvent "
+    "pas être rapprochées de façon fiable à partir de la DSN seule."
 )
 
 
@@ -802,7 +802,10 @@ def _compute_urssaf(
             matching_s22_blocks.append(s22)
 
     if len(matching_s22_blocks) > 1:
-        warnings.append("multiple_s22_bordereaux")
+        warnings.append(
+            "Plusieurs bordereaux URSSAF ont été détectés pour le même "
+            "organisme dans cette DSN."
+        )
 
     bordereau_amount: Decimal | None = None
     bord_total = Decimal(0)
@@ -1420,7 +1423,11 @@ def _compute_retraite(
         aggregate_amount = _dec(_find_value(s20.records, "S21.G00.20.005"))
 
         if multi_caisse:
-            warnings.append("multiple_retirement_organisms_unallocated")
+            warnings.append(
+                "Plusieurs caisses de retraite ont été détectées. La DSN "
+                "ne permet pas de répartir fiablement les montants "
+                "individuels par caisse."
+            )
 
         delta: Decimal | None = None
         if aggregate_amount is not None and individual_amount is not None:

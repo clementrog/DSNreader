@@ -3249,7 +3249,7 @@ class TestRegressionMultiCaisseRetraite:
             assert item.status == "non_calculable", (
                 f"Multi-caisse retraite should be non_calculable, got {item.status}"
             )
-            assert any("multiple_retirement_organisms_unallocated" in w for w in item.warnings)
+            assert any("Plusieurs caisses de retraite" in w for w in item.warnings)
             # Raw aggregate amount still visible
             assert item.aggregate_amount is not None
         # Must NOT count as success
@@ -3555,10 +3555,10 @@ class TestRegressionMultipleS22:
         assert item.aggregate_amount == Decimal("8000.00")
         assert item.status == "ok"
         # Warning for multiple S22
-        assert any("multiple_s22_bordereaux" in w for w in item.warnings)
+        assert any("Plusieurs bordereaux URSSAF" in w for w in item.warnings)
 
     def test_single_s22_no_warning(self):
-        """Single S22 → no multiple_s22_bordereaux warning."""
+        """Single S22 → no multiple bordereaux warning."""
         est = _est(
             _r("S21.G00.20.001", "78861779300013", 1),
             _r("S21.G00.20.005", "5000.00", 2),
@@ -3569,7 +3569,7 @@ class TestRegressionMultipleS22:
         )
         cc = compute_contribution_comparisons(est)
         urssaf = [i for i in cc.items if i.family == "urssaf"][0]
-        assert not any("multiple_s22_bordereaux" in w for w in urssaf.warnings)
+        assert not any("Plusieurs bordereaux URSSAF" in w for w in urssaf.warnings)
 
 
 # ---------------------------------------------------------------------------
