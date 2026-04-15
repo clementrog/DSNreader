@@ -193,17 +193,21 @@ def test_compact_expansion_warning_replaces_banner():
     )
 
 
-def test_reconstructed_declared_amount_badge_present():
-    """Rebuilt D rows surface a clear reconstructed marker in the collapsed
-    `Déclaré` cell instead of staying visually empty."""
+def test_reconstructed_declared_amount_uses_subtle_origin_line():
+    """Rebuilt D rows keep the provenance cue, but as a low-noise origin
+    line rather than a colored pill badge in the collapsed amount cell."""
     text = _app_js()
-    assert "Reconstitu\\u00e9" in text, (
-        "Expected `Reconstitué` badge copy in app.js for reconstructed "
+    assert "Reconstitué" in text, (
+        "Expected `Reconstitué` copy in app.js for reconstructed "
         "URSSAF declared amounts."
     )
     assert "amount_source === 'reconstructed'" in text, (
         "The URSSAF bundle must branch on `amount_source === 'reconstructed'` "
         "to render reconstructed declared amounts distinctly."
+    )
+    assert "amount-origin" in text, (
+        "Expected the collapsed amount cell to use the subtle `amount-origin` "
+        "meta line for reconstructed or mixed provenance."
     )
 
 
@@ -220,9 +224,20 @@ def test_informational_partial_rows_are_driven_by_comparison_mode():
         "Expected dedicated helper for informational-partial rows so the "
         "filter, stripe, and note share the same machine-readable contract."
     )
-    assert 'title="Comparaison informative uniquement"' in text, (
-        "Expected the delta cell fallback to expose the informational state "
-        "directly from comparison_mode."
+    assert "cell-info-state" in text, (
+        "Expected a dedicated informational delta state instead of the "
+        "generic non-calculable em-dash."
+    )
+    assert "Rattaché · Partiel" in text, (
+        "Expected collapsed informational rows to say `Rattaché · Partiel` "
+        "rather than plain `Rattaché`."
+    )
+    assert "Delta non affiché : montant URSSAF complet vs total salarié partiel" in text, (
+        "Expected explicit delta tooltip for informational-partial rows."
+    )
+    assert "Partiel" in text, (
+        "Expected the collapsed delta cell to render a dedicated "
+        "`Partiel` state."
     )
 
 
@@ -264,27 +279,50 @@ def test_default_filter_shows_all_rows():
     )
 
 
-def test_contribution_sections_collapsed_by_default():
-    """Contribution sections start collapsed on a fresh render so a newly
-    uploaded DSN opens on a compact overview instead of an expanded stack."""
+def test_initial_contribution_tab_forces_urssaf():
+    """A fresh DSN upload must land on the URSSAF tab, even if another
+    family currently carries the worst status."""
     text = _app_js()
     assert re.search(
-        r"function getItemDefaultExpanded\(item\)\s*\{\s*return false;\s*\}",
+        r'function getInitialContributionTab\(data\)\s*\{\s*return "urssaf";\s*\}',
         text,
     ) is not None, (
-        "`getItemDefaultExpanded()` must return `false` so contribution "
-        "sections are collapsed by default after a new upload."
+        "`getInitialContributionTab()` must force `urssaf` so users land on "
+        "the primary reconciliation tab right after upload."
+    )
+
+
+def test_top_level_contribution_sections_stay_open_by_default():
+    """Top-level organism cards stay open on a fresh render so users keep
+    context on each organism while only the inner URSSAF rows are collapsed."""
+    text = _app_js()
+    assert re.search(
+        r"function getItemDefaultExpanded\(item\)\s*\{\s*return true;\s*\}",
+        text,
+    ) is not None, (
+        "`getItemDefaultExpanded()` must return `true` so top-level "
+        "organism sections stay open after a new upload."
+    )
+
+
+def test_urssaf_subsections_collapsed_by_default():
+    """URSSAF CTP sub-sections start collapsed, even when they contain an
+    issue, so the initial view stays readable without hiding the organism."""
+    text = _app_js()
+    assert re.search(
+        r"function _isUrssafCtpExpanded\(item, ctpCode, hasIssueDefault\)\s*\{[\s\S]*?return false;\s*\}",
+        text,
+    ) is not None, (
+        "`_isUrssafCtpExpanded()` must default to `false` so only the "
+        "sub-sections are collapsed on a fresh upload."
     )
 
 
 def test_pill_sizing_tightened():
-    """The shared `.status-badge` block is sized down (font-size fs-xs,
-    padding 2px 8px) so all four URSSAF variants read as calm chips
-    instead of loud pills."""
+    """The shared `.status-badge` block now reads as a calm text status,
+    not a filled pill: no uppercase shouting, no tinted background, no
+    large legacy padding."""
     css = _style_css()
-    # We don't assert exact values (they may be retuned), only that the
-    # old loud values (padding: 5px 12px + font-size: var(--fs-sm)) have
-    # been updated to smaller ones.
     badge_block = re.search(
         r"\.status-badge\s*\{[^}]*\}", css, flags=re.DOTALL
     )
@@ -292,9 +330,13 @@ def test_pill_sizing_tightened():
     body = badge_block.group(0)
     assert "padding: 5px 12px" not in body, (
         "Old pill padding `5px 12px` still present — the cleanup pass "
-        "should have shrunk this to `2px 8px` (or similar)."
+        "should not render a legacy filled-chip footprint anymore."
     )
-    assert "font-size: var(--fs-sm)" not in body, (
-        "Old pill font-size `var(--fs-sm)` still present — the cleanup "
-        "pass should have shrunk this to `var(--fs-xs)`."
+    assert "text-transform: uppercase" not in body, (
+        "Status badges should no longer shout in uppercase after the "
+        "UI refinement pass."
+    )
+    assert "background: transparent" in body, (
+        "Status badges should now render as lightweight text markers, not "
+        "tinted pills with filled backgrounds."
     )

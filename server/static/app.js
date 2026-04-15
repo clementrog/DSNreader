@@ -255,12 +255,12 @@
   // columns. Total advertised width == .urssaf-ctp-table's min-width (900px).
   var URSSAF_CTP_COLGROUP = '<colgroup>'
     + '<col style="width: 32px;">'
-    + '<col style="width: 72px;">'
+    + '<col style="width: 56px;">'
     + '<col>'
-    + '<col style="width: 120px;">'
-    + '<col style="width: 120px;">'
-    + '<col style="width: 110px;">'
-    + '<col style="width: 180px;">'
+    + '<col style="width: 132px;">'
+    + '<col style="width: 132px;">'
+    + '<col style="width: 96px;">'
+    + '<col style="width: 210px;">'
     + '</colgroup>';
 
   function formatAmount(v) {
@@ -281,6 +281,19 @@
       minimumFractionDigits: 0,
       maximumFractionDigits: 4,
     }) + " %";
+  }
+
+  function _renderAmountStack(mainHtml, metaLabel, metaTitle) {
+    var metaAttrs = metaTitle
+      ? ' title="' + escapeHtml(metaTitle) + '"'
+      : '';
+    var metaHtml = metaLabel
+      ? '<span class="amount-origin"' + metaAttrs + '>' + escapeHtml(metaLabel) + '</span>'
+      : '<span class="amount-origin amount-origin--empty" aria-hidden="true">&nbsp;</span>';
+    return '<span class="amount-stack">'
+      + '<span class="amount-stack__value">' + mainHtml + '</span>'
+      + metaHtml
+      + '</span>';
   }
 
   function formatSiret(v) {
@@ -1027,17 +1040,7 @@
   }
 
   function getInitialContributionTab(data) {
-    var payload = (data && data.global_contribution_comparisons) || {};
-    var items = Array.isArray(payload.items) ? payload.items : [];
-    var meta = computeTabMeta(items);
-    var statusOrder = { ecart: 0, warning: 1, ok: 2, empty: 3 };
-    var best = "urssaf";
-    var bestRank = 3;
-    CONTRIBUTION_TABS.forEach(function (t) {
-      var rank = statusOrder[meta[t].worstStatus] || 3;
-      if (rank < bestRank) { bestRank = rank; best = t; }
-    });
-    return best;
+    return "urssaf";
   }
 
   function computeTabMeta(items) {
@@ -1158,7 +1161,7 @@
   }
 
   function getItemDefaultExpanded(item) {
-    return false;
+    return true;
   }
 
   function isItemExpanded(item) {
@@ -1425,7 +1428,7 @@
     if (state.expandedUrssafCtps.hasOwnProperty(key)) {
       return state.expandedUrssafCtps[key];
     }
-    return !!hasIssueDefault;
+    return false;
   }
 
   function _renderUrssafAssietteSubRows(assietteDetails) {
@@ -1625,10 +1628,10 @@
     if ((breakdown.amount_source === 'reconstructed' || breakdown.amount_source === 'mixed') && breakdown.declared_amount != null) {
       var noteTitle = breakdown.amount_source === 'mixed'
         ? '<strong>Montant URSSAF partiellement reconstitué.</strong> '
-        : '<strong>Montant URSSAF reconstitué.</strong> ';
+        : '<strong>Montant URSSAF reconstitué pour la comparaison.</strong> ';
       var noteBody = breakdown.amount_source === 'mixed'
-        ? 'Cette ligne additionne une partie lue telle quelle dans la DSN et une partie recalculée à partir de l’assiette et du taux de référence hors AT.'
-        : 'Cette variante ne porte pas de montant payable direct en .005 dans la DSN. Le montant affiché a été recalculé à partir de l’assiette et du taux de référence hors AT.';
+        ? 'Cette ligne combine une partie lue telle quelle dans la DSN et une partie reconstruite à partir de l’assiette et du taux de référence hors AT, pour restituer le montant de comparaison de cette variante.'
+        : 'Pour cette variante, la DSN ne fournit pas de montant payable direct en .005. Le montant affiché est donc reconstruit à partir de l’assiette et du taux de référence hors AT, afin d’alimenter la comparaison.';
       declaredNote = '<div class="urssaf-info-note">'
         + noteTitle
         + noteBody
@@ -1654,17 +1657,17 @@
     // Column widths mirror the parent CTP table's colgroup so the sub-table
     // reads as a vertical extension of the main grid:
     //   Salarié           ← parent's code (72) + libellé (flex)
-    //   Code S81          ← parent's Déclaré   (120)
-    //   Montant           ← parent's Individuel (120)
-    //   Lignes DSN        ← parent's Delta (110) + Rattachement (180) = 290
+    //   Code S81          ← parent's Déclaré   (132)
+    //   Montant           ← parent's Individuel (132)
+    //   Lignes DSN        ← parent's Delta (96) + Rattachement (210) = 306
     // The leading 32px col absorbs the parent's chevron column so the first
     // visible column (Salarié) lines up with the parent Code column.
     var employeesColgroup = '<colgroup>'
       + '<col style="width: 32px;">'
       + '<col>'
-      + '<col style="width: 120px;">'
-      + '<col style="width: 120px;">'
-      + '<col style="width: 290px;">'
+      + '<col style="width: 132px;">'
+      + '<col style="width: 132px;">'
+      + '<col style="width: 306px;">'
       + '</colgroup>';
     return '<div class="urssaf-sub-section">'
       + '<h5 class="urssaf-sub-section__title">Salari\u00e9s (' + employees.length + ')' + appliedCodes + '</h5>'
@@ -1685,6 +1688,12 @@
   function _renderUrssafCtpRattachementBadge(breakdown) {
     var status = breakdown.mapping_status || 'non_rattache';
     if (status === 'rattachable') {
+      if (_isInformationalPartialComparison(breakdown)) {
+        return '<span class="status-badge status-badge--informatif"'
+          + ' title="Comparaison partielle : montant URSSAF complet vs total salarié partiel">'
+          + 'Rattaché · Partiel'
+          + '</span>';
+      }
       var hasDelta = false;
       if (breakdown.delta != null) {
         var dv = parseFloat(breakdown.delta);
@@ -1810,24 +1819,40 @@
         // single-variant row where .005 isn't declared. We intentionally do
         // not fabricate an aggregate amount here; show an explicit
         // "Non calculable" chip so the empty cell doesn't look like a bug.
-        declaredCell = '<span class="cell-na"'
-          + ' title="Montant URSSAF non d\u00e9clar\u00e9 pour cette variante.'
-          + ' Le d\u00e9tail salari\u00e9 reste consultable.">\u2014</span>';
+        declaredCell = _renderAmountStack(
+          '<span class="cell-na"'
+            + ' title="Montant URSSAF non d\u00e9clar\u00e9 pour cette variante.'
+            + ' Le d\u00e9tail salari\u00e9 reste consultable.">\u2014</span>',
+          '',
+          ''
+        );
       } else if (b != null) {
-        declaredCell = escapeHtml(formatAmount(_displayedAmount(b, b.declared_amount)));
+        var declaredMain = escapeHtml(formatAmount(_displayedAmount(b, b.declared_amount)));
+        var declaredMetaLabel = '';
+        var declaredMetaTitle = '';
         if (b.amount_source === 'reconstructed') {
-          declaredCell += ' <span class="badge-recalc">Reconstitu\u00e9</span>';
+          declaredMetaLabel = 'Reconstitué';
+          declaredMetaTitle = 'Montant reconstruit à partir de l’assiette et du taux de référence';
         } else if (b.amount_source === 'mixed') {
-          declaredCell += ' <span class="badge-recalc" title="Montant mixte : une partie est d\u00e9clar\u00e9e telle quelle, une autre est reconstitu\u00e9e.">Mixte</span>';
+          declaredMetaLabel = 'Mixte';
+          declaredMetaTitle = 'Montant mixte : une partie est déclarée telle quelle, une autre est reconstituée.';
         }
+        declaredCell = _renderAmountStack(declaredMain, declaredMetaLabel, declaredMetaTitle);
       } else {
-        declaredCell = escapeHtml(formatAmount(null));
+        declaredCell = _renderAmountStack(escapeHtml(formatAmount(null)), '', '');
       }
       var individualCell = b != null
-        ? escapeHtml(formatAmount(_displayedAmount(b, b.individual_amount)))
-        : escapeHtml(formatAmount(null));
+        ? _renderAmountStack(
+            escapeHtml(formatAmount(_displayedAmount(b, b.individual_amount))),
+            '',
+            ''
+          )
+        : _renderAmountStack(escapeHtml(formatAmount(null)), '', '');
       var deltaCell = _isInformationalPartialComparison(b)
-        ? '<span class="cell-na" title="Comparaison informative uniquement">\u2014</span>'
+        ? '<span class="cell-info-state"'
+          + ' title="Delta non affiché : montant URSSAF complet vs total salarié partiel">'
+          + 'Partiel'
+          + '</span>'
         : '<span class="cell-na" title="Non calculable">\u2014</span>';
       if (b != null) {
         var displayedDelta = _displayedDelta(b);

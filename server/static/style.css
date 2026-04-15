@@ -46,11 +46,11 @@
   /* Status */
   --color-info: #6a9bcc;
   --color-success: #788c5d;
-  --color-warning: #d97706;
+  --color-warning: #882F5B;
   --color-error: #c4453a;
 
   /* Interactive */
-  --color-accent: #8B2E5F;
+  --color-accent: #882F5B;
   --color-accent-hover: #A03A72;
   --color-accent-active: #752650;
 
@@ -77,22 +77,22 @@
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
   --color-surface-inset: #ffffff;
-  --color-surface-hover: #F1F5F9;
-  --color-surface-active: #E2E8F0;
+  --color-surface-hover: #F9FAFB;
+  --color-surface-active: #EEF2F6;
 
-  --color-border: #E2E8F0;
-  --color-border-subtle: #F1F5F9;
+  --color-border: #E9EDF2;
+  --color-border-subtle: #F5F7FA;
 
-  --color-text-primary: #0F172A;
-  --color-text-secondary: #475569;
-  --color-text-tertiary: #94A3B8;
+  --color-text-primary: #121418;
+  --color-text-secondary: #4F5967;
+  --color-text-tertiary: #5F6C78;
 
-  --color-info: #5580a8;
+  --color-info: #5B7EA2;
   --color-success: #16a34a;
-  --color-warning: #d97706;
+  --color-warning: #882F5B;
   --color-error: #ef4444;
 
-  --color-accent: #8B2E5F;
+  --color-accent: #882F5B;
   --color-accent-hover: #752650;
   --color-accent-active: #5F1E41;
 
@@ -1203,14 +1203,14 @@ body[data-state="error"] #error-screen {
 
 .contrib-item__title {
   font-family: var(--font-heading);
-  font-size: var(--fs-lg);
+  font-size: var(--fs-xl);
   font-weight: 600;
 }
 
 .contrib-item__meta {
   margin-top: var(--sp-1);
   color: var(--color-text-secondary);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
 }
 
 .contrib-item__header-right {
@@ -1238,10 +1238,10 @@ body[data-state="error"] #error-screen {
   gap: 6px;
   padding: 0;
   background: transparent;
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  text-transform: none;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   line-height: 1.4;
 }
@@ -1270,7 +1270,8 @@ body[data-state="error"] #error-screen {
 .status-badge--manquant_detail,
 .status-badge--manquant_individuel,
 .status-badge--declared_only,
-.status-badge--computed_only {
+.status-badge--computed_only,
+.status-badge--informatif {
   color: var(--color-warning);
 }
 
@@ -1300,7 +1301,9 @@ body[data-state="error"] #error-screen {
 .contrib-warning {
   margin-top: var(--sp-4);
   padding: var(--sp-3) var(--sp-4);
-  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+  background: color-mix(in srgb, var(--color-surface-hover) 85%, white);
+  border: 1px solid color-mix(in srgb, var(--color-border) 92%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
   border-radius: var(--radius);
   color: var(--color-text-primary);
 }
@@ -1309,11 +1312,17 @@ body[data-state="error"] #error-screen {
   display: block;
   margin-bottom: var(--sp-1);
   font-weight: 600;
-  color: var(--color-warning);
+  color: var(--color-text-primary);
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .contrib-warning__list {
   margin-left: var(--sp-4);
+  color: var(--color-text-secondary);
+  font-size: var(--fs-body);
+  line-height: 1.55;
 }
 
 .contrib-warning__list li + li {
@@ -1418,14 +1427,49 @@ body[data-state="error"] #error-screen {
 .badge-recalc {
   display: inline-block;
   margin-left: var(--sp-1);
-  padding: 0 var(--sp-1);
+  padding: 0;
   font-family: var(--font-sans);
-  font-size: var(--fs-xs);
-  color: var(--color-warning);
-  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
-  border-radius: 3px;
+  font-size: var(--fs-sm);
+  color: var(--color-text-tertiary);
+  border: 0;
+  border-radius: 0;
   vertical-align: middle;
   line-height: 1.4;
+}
+
+.amount-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 38px;
+  gap: 2px;
+  width: 100%;
+}
+
+.amount-stack__value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 20px;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+.amount-origin {
+  display: block;
+  min-height: 16px;
+  font-size: var(--fs-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.2;
+  cursor: help;
+  opacity: 0.82;
+  letter-spacing: 0.01em;
+}
+
+.amount-origin--empty {
+  visibility: hidden;
+  cursor: default;
 }
 
 .cell-sublabel {
@@ -1498,7 +1542,7 @@ body[data-state="error"] #error-screen {
  * collapsed columns. Without this lock, content inside the expansion was
  * pushing the parent cells narrower/wider on toggle. */
 .urssaf-ctp-table {
-  min-width: 900px;
+  min-width: 930px;
   table-layout: fixed;
 }
 
@@ -1511,6 +1555,7 @@ body[data-state="error"] #error-screen {
   font-weight: 500;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  font-size: var(--fs-body);
 }
 
 /* Data-driven labels arrive uppercase from the CTP catalog (e.g.
@@ -1518,8 +1563,8 @@ body[data-state="error"] #error-screen {
  * read as "caps data" consistent with the column header style above
  * instead of shouting at body-text weight. */
 .urssaf-ctp-label {
-  font-size: var(--fs-xs);
-  letter-spacing: 0.04em;
+  font-size: var(--fs-sm);
+  letter-spacing: 0.03em;
   color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -1530,6 +1575,7 @@ body[data-state="error"] #error-screen {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: var(--fs-sm);
 }
 
 .urssaf-ctp-table__chevron-col {
@@ -1540,6 +1586,12 @@ body[data-state="error"] #error-screen {
 .urssaf-ctp-row {
   cursor: pointer;
   transition: background 0.12s;
+}
+
+.urssaf-ctp-row td {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  vertical-align: middle;
 }
 
 .urssaf-ctp-row:hover {
@@ -1640,7 +1692,7 @@ body[data-state="error"] #error-screen {
  * URSSAF card reads as one typographic system rather than many "caps"
  * treatments competing for attention. */
 .urssaf-sub-section__title {
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-text-tertiary);
@@ -1663,7 +1715,7 @@ body[data-state="error"] #error-screen {
  * tables inside the expansion don't visually compete with the parent table's
  * headers. */
 .urssaf-sub-table th {
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   text-transform: none;
   letter-spacing: normal;
   color: var(--color-text-tertiary);
@@ -1682,7 +1734,7 @@ body[data-state="error"] #error-screen {
  * ellipsis so the column never exceeds its allotted width. */
 .urssaf-lines-cell {
   color: var(--color-text-tertiary);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
 }
 
 /* Remove zebra striping inside expansion sub-tables — the expansion panel
@@ -1797,12 +1849,12 @@ body[data-state="error"] #error-screen {
 .urssaf-info-note {
   padding: var(--sp-3) var(--sp-4);
   margin-bottom: var(--sp-3);
-  border: 1px solid color-mix(in srgb, var(--color-accent, var(--color-text-secondary)) 25%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--color-accent, var(--color-text-secondary)) 22%, var(--color-border));
   border-left-width: 3px;
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--color-surface-hover) 45%, transparent);
+  background: color-mix(in srgb, var(--color-surface-hover) 78%, white);
   color: var(--color-text-secondary);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-body);
   line-height: 1.5;
 }
 
@@ -1823,6 +1875,22 @@ body[data-state="error"] #error-screen {
   text-underline-offset: 3px;
 }
 
+.cell-info-state {
+  color: var(--color-warning);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  cursor: help;
+  text-decoration: underline dotted color-mix(in srgb, var(--color-warning) 55%, transparent);
+  text-underline-offset: 3px;
+}
+
+.urssaf-ctp-table td.col-num,
+.urssaf-sub-table td.col-num {
+  vertical-align: middle;
+}
+
 /* ── Sticky table header ─────────────────────────────────── */
 
 .contrib-details-table thead th,
@@ -1831,6 +1899,13 @@ body[data-state="error"] #error-screen {
   top: 0;
   z-index: 5;
   background: var(--color-surface);
+}
+
+.contrib-details-table thead th,
+.urssaf-ctp-table thead th,
+.contrib-filter-count,
+.contrib-filter-toggle__label {
+  font-size: var(--fs-sm);
 }
 
 /* ── Site footer ─────────────────────────────────────────── */

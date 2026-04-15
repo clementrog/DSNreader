@@ -1830,6 +1830,56 @@ class TestUrssafMappedCodeSplit:
         assert any(e["reason"] == "wrong_base" for e in row.excluded_individual_codes)
         assert any("Comparaison informative uniquement" in warning for warning in row.warnings)
 
+    def test_urssaf_component_subtotal_hidden_when_ctp_stack_is_not_audit_safe(self):
+        """Top-level URSSAF component subtotal must be suppressed as soon as
+        one contributing row is informational-only or not mapping-validated.
+
+        This mirrors the real product problem: a mechanically summed
+        "Composant" total looked trustworthy even though it mixed:
+        - informational reconstructed D rows
+        - non-rattaché rows carrying declared amounts
+        - manquant_individuel rows carrying declared amounts
+        """
+        emp = self._employee(
+            *self._s78_s81("045", "80.00", base_code="03", start_line=20),
+            *self._s78_s81("068", "40.00", base_code="02", start_line=30),
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "4755.47", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "4755.47", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "0.71", 7),
+            _r("S21.G00.23.004", "10000.00", 8),
+            _r("S21.G00.23.001", "430", 9),
+            _r("S21.G00.23.002", "920", 10),
+            _r("S21.G00.23.005", "793.49", 11),
+            _r("S21.G00.23.001", "635", 12),
+            _r("S21.G00.23.002", "920", 13),
+            _r("S21.G00.23.005", "2644.98", 14),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns}
+
+        assert urssaf.aggregate_amount == Decimal("4755.47")
+        assert urssaf.bordereau_amount == Decimal("4755.47")
+        assert urssaf.component_amount is None
+        assert urssaf.bordereau_vs_component_delta is None
+        assert any(
+            "Sous-total composant URSSAF non affiché" in warning
+            for warning in urssaf.warnings
+        )
+
+        assert rows["100D"].mapping_status == "rattachable"
+        assert rows["100D"].comparison_mode == "informational_partial"
+        assert rows["430D"].mapping_status == "non_rattache"
+        assert rows["430D"].declared_amount == Decimal("793.49")
+        assert rows["635D"].mapping_status == "manquant_individuel"
+        assert rows["635D"].declared_amount == Decimal("2644.98")
+
     def test_urssaf_single_qualifier_ctp_unchanged(self):
         """Single-qualifier CTPs produce exactly one row (no D/P split)."""
         emp = self._employee(*self._s78_s81("128", "48.00", base_code="03"))

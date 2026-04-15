@@ -377,6 +377,12 @@ _PARTIAL_RECONSTRUCTED_D_WARNING = (
     "composantes calculables dans la DSN. Le delta CTP n'est donc pas affiché."
 )
 
+_UNSAFE_URSSAF_COMPONENT_SUBTOTAL_WARNING = (
+    "Sous-total composant URSSAF non affiché : certaines lignes CTP sont "
+    "reconstruites ou non validées métier, donc le total détaillé n'est pas "
+    "comparable de façon fiable au bordereau."
+)
+
 
 @dataclass(frozen=True)
 class EmployeeS81Contribution:
@@ -1278,6 +1284,31 @@ def _compute_urssaf(
         # full detailed amount in the top-level card.
         component_amount = None
 
+    # Slice C: per-CTP drill-down to employee-level amounts via Slice B mapping.
+    s81_by_code, has_any_s78_s81 = _collect_s81_by_individual_code(employee_blocks)
+    urssaf_code_breakdowns = _build_urssaf_code_breakdowns(
+        details, s81_by_code, qualifiers_by_ctp, insee_codes_by_ctp,
+        ctps_with_empty_qualifier, reference_date,
+    )
+
+    unsafe_component_breakdowns = [
+        breakdown
+        for breakdown in urssaf_code_breakdowns
+        if breakdown.declared_amount is not None
+        and (
+            breakdown.comparison_mode == "informational_partial"
+            or (
+                has_any_s78_s81
+                and breakdown.mapping_status != "rattachable"
+            )
+        )
+    ]
+    if unsafe_component_breakdowns:
+        component_comparison_complete = False
+        component_amount = None
+        if _UNSAFE_URSSAF_COMPONENT_SUBTOTAL_WARNING not in warnings:
+            warnings.append(_UNSAFE_URSSAF_COMPONENT_SUBTOTAL_WARNING)
+
     # Deltas
     agg_vs_bord_delta: Decimal | None = None
     bord_vs_comp_delta: Decimal | None = None
@@ -1316,13 +1347,6 @@ def _compute_urssaf(
 
     if has_regularization:
         warnings.append(REGULARIZATION_WARNING)
-
-    # Slice C: per-CTP drill-down to employee-level amounts via Slice B mapping.
-    s81_by_code, has_any_s78_s81 = _collect_s81_by_individual_code(employee_blocks)
-    urssaf_code_breakdowns = _build_urssaf_code_breakdowns(
-        details, s81_by_code, qualifiers_by_ctp, insee_codes_by_ctp,
-        ctps_with_empty_qualifier, reference_date,
-    )
 
     # Warn when individual data is present in the file but some CTPs cannot
     # be drilled down. The warning text reflects the actual reason so users

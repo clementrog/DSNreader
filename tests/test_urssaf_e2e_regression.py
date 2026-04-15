@@ -305,6 +305,12 @@ def test_real_regression_shape_fixture_fixes_split_and_downgrades_partial_d_rows
         if b.mapped_code in {"100D", "100P", "726D", "726P", "863D", "863P"}
     }
 
+    assert urssaf.aggregate_amount == Decimal("221.39")
+    assert urssaf.bordereau_amount == Decimal("221.39")
+    assert urssaf.component_amount is None
+    assert urssaf.bordereau_vs_component_delta is None
+    assert any("Sous-total composant URSSAF non affiché" in warning for warning in urssaf.warnings)
+
     assert rows["726P"].individual_amount == Decimal("77.94")
     assert rows["726P"].delta == Decimal("0.04")
     assert rows["726P"].delta_within_unit is True
