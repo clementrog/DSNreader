@@ -1370,6 +1370,10 @@
     return Math.abs(d) - Math.abs(i);
   }
 
+  function _isInformationalPartialComparison(breakdown) {
+    return !!(breakdown && breakdown.comparison_mode === 'informational_partial');
+  }
+
   function _ctpHasIssue(breakdown, assietteDetails) {
     // Returns true when a CTP row needs to be surfaced under the default
     // "Afficher uniquement les écarts" filter — i.e. whenever the row carries
@@ -1386,7 +1390,10 @@
     //   3. Mapping status is anything other than "rattachable" — so
     //      non_rattache and manquant_individuel rows are always visible and
     //      the UI can explicitly explain why the drill-down is unavailable.
-    //   4. Breakdown carries at least one warning (e.g. the Slice C partial
+    //   4. Breakdown is explicitly marked informational_partial by the
+    //      backend — this is a machine-readable presentation contract, so
+    //      the row must stay visible even if warning copy changes later.
+    //   5. Breakdown carries at least one warning (e.g. the Slice C partial
     //      multi-assiette collapse warning) — the user must see the row to
     //      read the warning.
     for (var i = 0; i < assietteDetails.length; i++) {
@@ -1398,6 +1405,9 @@
       if (!isNaN(dv) && dv !== 0 && !breakdown.delta_within_unit) return true;
     }
     if (breakdown && breakdown.mapping_status && breakdown.mapping_status !== "rattachable") {
+      return true;
+    }
+    if (_isInformationalPartialComparison(breakdown)) {
       return true;
     }
     if (breakdown && Array.isArray(breakdown.warnings) && breakdown.warnings.length > 0) {
@@ -1632,6 +1642,14 @@
         + '\u00e9t\u00e9 reconstitu\u00e9 pour \u00e9viter toute valeur fantaisiste.'
         + '</div>';
     }
+    if (_isInformationalPartialComparison(breakdown)) {
+      declaredNote += '<div class="urssaf-info-note">'
+        + '<strong>Comparaison informative uniquement.</strong> '
+        + 'Le montant URSSAF affiché couvre ici le panier complet, alors que '
+        + 'le total salarié ne couvre que les composantes calculables dans la DSN. '
+        + 'Le delta CTP est donc volontairement masqué.'
+        + '</div>';
+    }
 
     // Column widths mirror the parent CTP table's colgroup so the sub-table
     // reads as a vertical extension of the main grid:
@@ -1808,7 +1826,9 @@
       var individualCell = b != null
         ? escapeHtml(formatAmount(_displayedAmount(b, b.individual_amount)))
         : escapeHtml(formatAmount(null));
-      var deltaCell = '<span class="cell-na" title="Non calculable">\u2014</span>';
+      var deltaCell = _isInformationalPartialComparison(b)
+        ? '<span class="cell-na" title="Comparaison informative uniquement">\u2014</span>'
+        : '<span class="cell-na" title="Non calculable">\u2014</span>';
       if (b != null) {
         var displayedDelta = _displayedDelta(b);
         if (displayedDelta != null) {
@@ -1825,12 +1845,14 @@
         ? _renderUrssafCtpRattachementBadge(b)
         : '<span class="status-badge status-badge--non_rattache">Non rattach\u00e9</span>';
 
-      // Row-level warnings (from UrssafCodeBreakdown.warnings) move to the
-      // expanded state. The collapsed row carries only a subtle left-accent
-      // stripe (via --has-warnings) so the user can see at a glance which
-      // rows hold a note — without the full sentence adding noise.
+      // Row-level warnings move to the expanded state. The collapsed row
+      // carries only a subtle left-accent stripe (via --has-warnings) so the
+      // user can see at a glance which rows hold a note — without the full
+      // sentence adding noise. Informational-partial rows reuse the same
+      // accent, but the trigger comes from comparison_mode rather than from
+      // parsing warning text.
       var breakdownWarnings = (b && Array.isArray(b.warnings)) ? b.warnings : [];
-      var hasWarnings = breakdownWarnings.length > 0;
+      var hasWarnings = breakdownWarnings.length > 0 || _isInformationalPartialComparison(b);
 
       var rowCls = 'urssaf-ctp-row'
         + (expanded ? ' urssaf-ctp-row--expanded' : '')

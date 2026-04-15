@@ -225,6 +225,7 @@ class UrssafCodeBreakdown(BaseModel):
     individual_amount: Decimal | None = None  # Sum of S81.004 across employees
     delta: Decimal | None = None  # declared_amount - individual_amount (signed, for audit)
     delta_within_unit: bool = False  # True when abs(delta) < 1.00€ (URSSAF row policy)
+    comparison_mode: str | None = None  # informational_partial when declared vs employee is intentionally non-comparable
     display_absolute: bool = False  # UI renders abs() of amounts and abs-based delta
     employees: list[EmployeeContributionBreakdown] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

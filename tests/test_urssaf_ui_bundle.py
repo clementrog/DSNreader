@@ -207,6 +207,35 @@ def test_reconstructed_declared_amount_badge_present():
     )
 
 
+def test_informational_partial_rows_are_driven_by_comparison_mode():
+    """URSSAF informational-partial presentation must key off the backend
+    `comparison_mode` contract, not off a French warning sentence."""
+    text = _app_js()
+    assert "comparison_mode === 'informational_partial'" in text, (
+        "Expected explicit frontend branch on `comparison_mode === "
+        "'informational_partial'` so informational rows do not depend on "
+        "warning text parsing."
+    )
+    assert "_isInformationalPartialComparison" in text, (
+        "Expected dedicated helper for informational-partial rows so the "
+        "filter, stripe, and note share the same machine-readable contract."
+    )
+    assert 'title="Comparaison informative uniquement"' in text, (
+        "Expected the delta cell fallback to expose the informational state "
+        "directly from comparison_mode."
+    )
+
+
+def test_informational_partial_note_present_in_urssaf_expansion():
+    """Expanded URSSAF rows should explain informational-partial semantics
+    from the backend flag, independently of row warning copy."""
+    text = _app_js()
+    assert "Le delta CTP est donc volontairement masqué." in text, (
+        "Expected explicit explanatory note in the URSSAF expansion for "
+        "comparison_mode=informational_partial rows."
+    )
+
+
 def test_mixed_declared_amount_badge_present():
     """Mixed declared+reconstructed rows surface an explicit cue instead of
     inheriting the last processed detail source."""

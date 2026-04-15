@@ -206,12 +206,14 @@ def test_urssaf_seven_issues_regression():
     )
     assert b100P.individual_amount == Decimal("6297.27")
 
-    # ---- Behavior 4: 100D rattachable with reconstructed declared side ---
+    # ---- Behavior 4: 100D stays informational when employee side is partial -
     assert b100D.mapping_status == "rattachable"
     assert b100D.declared_amount == Decimal("1317.00")
     assert b100D.amount_source == "reconstructed"
     assert b100D.individual_amount == Decimal("1468.42")
-    assert b100D.delta == Decimal("-151.42")
+    assert b100D.delta is None
+    assert b100D.comparison_mode == "informational_partial"
+    assert any("Comparaison informative uniquement" in warning for warning in b100D.warnings)
 
     # ---- Behavior 5: one row per employee under 100P --------------------
     emp_ids_100P = [e.employee_name for e in b100P.employees]
@@ -277,3 +279,52 @@ def test_thomas_like_shareable_fixture_end_to_end_100p_726p_ok():
     assert rows["726P"].delta == Decimal("0.00")
     assert rows["100P"].delta_within_unit is True
     assert rows["726P"].delta_within_unit is True
+
+
+def test_real_regression_shape_fixture_fixes_split_and_downgrades_partial_d_rows():
+    """Minimized DSN fixture preserving the real regression shape:
+    already-split apprentice 076 rows plus reconstructed D rows whose
+    employee side remains partial by construction."""
+    fixture = Path(__file__).parent / "fixtures" / "real_regression_apprentice_partial_d_minimized.dsn"
+    records, skipped = parse_lines(fixture.read_text(encoding="utf-8"))
+    assert skipped == []
+    parsed = segment(records, skipped)
+    assert len(parsed.establishments) == 1
+
+    urssaf = [
+        i
+        for i in compute_contribution_comparisons(
+            parsed.establishments[0],
+            reference_date=dt.date(2026, 3, 31),
+        ).items
+        if i.family == "urssaf"
+    ][0]
+    rows = {
+        b.mapped_code: b
+        for b in urssaf.urssaf_code_breakdowns
+        if b.mapped_code in {"100D", "100P", "726D", "726P", "863D", "863P"}
+    }
+
+    assert rows["726P"].individual_amount == Decimal("77.94")
+    assert rows["726P"].delta == Decimal("0.04")
+    assert rows["726P"].delta_within_unit is True
+
+    assert rows["100P"].individual_amount == Decimal("41.44")
+    assert rows["100P"].delta == Decimal("0.00")
+    assert rows["100P"].delta_within_unit is True
+
+    assert rows["726D"].individual_amount == Decimal("36.82")
+    assert rows["726D"].delta is None
+    assert any("Comparaison informative uniquement" in warning for warning in rows["726D"].warnings)
+
+    assert rows["100D"].individual_amount == Decimal("1510.13")
+    assert rows["100D"].delta is None
+    assert any("Comparaison informative uniquement" in warning for warning in rows["100D"].warnings)
+
+    assert rows["863D"].individual_amount == Decimal("23.24")
+    assert rows["863D"].delta is None
+    assert any("Comparaison informative uniquement" in warning for warning in rows["863D"].warnings)
+
+    assert rows["863P"].individual_amount == Decimal("101.97")
+    assert rows["863P"].delta == Decimal("0.00")
+    assert rows["863P"].delta_within_unit is True

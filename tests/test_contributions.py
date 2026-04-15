@@ -1795,6 +1795,41 @@ class TestUrssafMappedCodeSplit:
         assert b_d.individual_amount == Decimal("80.00")
         assert b_d.delta == Decimal("1237.00")
 
+    def test_reconstructed_d_row_becomes_informational_when_partiality_comes_from_excluded_component(self):
+        """Informational downgrade must not depend only on amount=None.
+
+        Here the employee side is partial because one matched-family component
+        exists on the wrong S78 base and is therefore excluded, even though all
+        employee rows carry explicit amounts.
+        """
+        emp = self._employee(
+            *self._s78_s81("045", "4.69", base_code="03", start_line=20),
+            *self._s78_s81("068", "1.98", base_code="03", start_line=30),
+            *self._s78_s81("074", "22.77", base_code="02", start_line=40),
+            contract_nature="80",
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "139.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "139.00", 4),
+            _r("S21.G00.23.001", "863", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "0.71", 7),
+            _r("S21.G00.23.004", "660.00", 8),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        row = [b for b in urssaf.urssaf_code_breakdowns if b.mapped_code == "863D"][0]
+
+        assert row.mapping_status == "rattachable"
+        assert row.amount_source == "reconstructed"
+        assert row.individual_amount == Decimal("6.67")
+        assert row.delta is None
+        assert row.comparison_mode == "informational_partial"
+        assert any(e["reason"] == "wrong_base" for e in row.excluded_individual_codes)
+        assert any("Comparaison informative uniquement" in warning for warning in row.warnings)
+
     def test_urssaf_single_qualifier_ctp_unchanged(self):
         """Single-qualifier CTPs produce exactly one row (no D/P split)."""
         emp = self._employee(*self._s78_s81("128", "48.00", base_code="03"))
@@ -2044,7 +2079,7 @@ class TestUrssafApprenticeAllocation:
         assert rows["726P"].delta_within_unit is True
 
     @pytest.mark.parametrize("individual_code", ["045", "068", "074", "075"])
-    def test_d_variant_split_uses_same_code_rate_for_non_076_codes(self, individual_code: str):
+    def test_d_variant_does_not_redistribute_non_076_apprentice_codes(self, individual_code: str):
         emp = self._employee(
             individual_code=individual_code,
             base_code="03",
@@ -2062,12 +2097,12 @@ class TestUrssafApprenticeAllocation:
         )
 
         rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
-        assert rows["726D"].individual_amount == Decimal("27.03")
-        assert rows["100D"].individual_amount == Decimal("32.97")
-        assert rows["726D"].delta == Decimal("0.00")
-        assert rows["100D"].delta == Decimal("0.00")
+        assert rows["726D"].individual_amount == Decimal("60.00")
+        assert rows["726D"].delta == Decimal("-32.97")
+        assert rows["100D"].mapping_status == "manquant_individuel"
+        assert rows["100D"].individual_amount is None
         assert rows["726D"].employees[0].individual_codes == [individual_code]
-        assert rows["100D"].employees[0].individual_codes == [individual_code]
+        assert rows["100D"].employees == []
 
     def test_valid_and_missing_threshold_context_share_same_rows_without_row_wide_refusal(self):
         valid_emp = self._employee(
@@ -2145,6 +2180,71 @@ class TestUrssafApprenticeAllocation:
                 ),
                 reference_date=dt.date(2024, 10, 31),
             )
+
+    def test_pre_split_apprentice_rows_are_not_split_twice_on_p_side(self):
+        emp = _emp(
+            _r("S21.G00.30.001", "1", 10),
+            _r("S21.G00.30.002", "FROISSY", 11),
+            _r("S21.G00.30.004", "Alexis", 12),
+            _r("S21.G00.40.001", "15042025", 13),
+            _r("S21.G00.40.007", "02", 14),
+            _r("S21.G00.78.001", "02", 20),
+            _r("S21.G00.78.004", "1179.75", 21),
+            _r("S21.G00.81.001", "076", 22),
+            _r("S21.G00.81.003", "911.53", 23),
+            _r("S21.G00.81.004", "77.94", 24),
+            _r("S21.G00.81.007", "8.55", 25),
+            _r("S21.G00.81.001", "076", 26),
+            _r("S21.G00.81.003", "268.21", 27),
+            _r("S21.G00.81.004", "41.44", 28),
+            _r("S21.G00.81.007", "1.45", 29),
+        )
+        urssaf = self._urssaf(
+            self._est_with_100_726_split(
+                declared_100="41.44",
+                declared_726="77.94",
+                employees=[emp],
+            )
+        )
+
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+        assert rows["726P"].individual_amount == Decimal("77.94")
+        assert rows["100P"].individual_amount == Decimal("41.44")
+        assert rows["726P"].delta == Decimal("0.00")
+        assert rows["100P"].delta == Decimal("0.00")
+
+    def test_pre_split_apprentice_rows_stay_fully_in_726_on_d_side(self):
+        emp = _emp(
+            _r("S21.G00.30.001", "1", 10),
+            _r("S21.G00.30.002", "FROISSY", 11),
+            _r("S21.G00.30.004", "Alexis", 12),
+            _r("S21.G00.40.001", "15042025", 13),
+            _r("S21.G00.40.007", "02", 14),
+            _r("S21.G00.78.001", "03", 20),
+            _r("S21.G00.78.004", "1179.75", 21),
+            _r("S21.G00.81.001", "076", 22),
+            _r("S21.G00.81.003", "911.53", 23),
+            _r("S21.G00.81.004", "18.41", 24),
+            _r("S21.G00.81.007", "2.02", 25),
+            _r("S21.G00.81.001", "076", 26),
+            _r("S21.G00.81.003", "268.21", 27),
+            _r("S21.G00.81.004", "6.49", 28),
+            _r("S21.G00.81.007", "2.42", 29),
+        )
+        urssaf = self._urssaf(
+            self._est_with_100_726_split(
+                declared_100="6.49",
+                declared_726="18.41",
+                assiette="920",
+                employees=[emp],
+            )
+        )
+
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+        assert rows["726D"].individual_amount == Decimal("24.90")
+        assert rows["726D"].delta == Decimal("-6.49")
+        assert rows["100D"].mapping_status == "manquant_individuel"
+        assert rows["100D"].individual_amount is None
 
 
 # ---------------------------------------------------------------------------

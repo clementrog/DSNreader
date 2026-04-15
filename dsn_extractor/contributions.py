@@ -371,16 +371,24 @@ _PARTIAL_CTP_WARNING = (
     "pas être rapprochées de façon fiable à partir de la DSN seule."
 )
 
+_PARTIAL_RECONSTRUCTED_D_WARNING = (
+    "Comparaison informative uniquement : le montant URSSAF reconstitué couvre "
+    "le panier complet, alors que le total salarié ne couvre ici que les "
+    "composantes calculables dans la DSN. Le delta CTP n'est donc pas affiché."
+)
+
 
 @dataclass(frozen=True)
 class EmployeeS81Contribution:
     employee_index: int
     employee_name: str
     individual_code: str
-    amount: Decimal
+    amount: Decimal | None
     record_lines: list[int]
     base_code_s78: str
     base_amount_s78: Decimal | None
+    base_amount_s81: Decimal | None
+    rate_percent: Decimal | None
     contract_natures: frozenset[str]
     contract_start_date: dt.date | None
     threshold_context_issue: str | None = None
@@ -437,12 +445,52 @@ def _infer_apprentice_exact_rate_percent(
 
     if contribution.individual_code not in APPRENTICE_SPLIT_OBSERVED_RATE_CODES:
         return None
-    if contribution.base_amount_s78 is None or contribution.base_amount_s78 <= 0:
+    if contribution.amount is None:
+        return None
+    base_amount = contribution.base_amount_s81 or contribution.base_amount_s78
+    if base_amount is None or base_amount <= 0:
         return None
 
     return (
-        abs(contribution.amount) * Decimal(100) / contribution.base_amount_s78
+        abs(contribution.amount) * Decimal(100) / base_amount
     ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+
+def _observed_apprentice_target_ctp(
+    contribution: EmployeeS81Contribution,
+) -> str | None:
+    """Detect whether a 076 row is already split to 726 or 100.
+
+    Real DSNs can already carry the apprentice under-threshold / excess split
+    directly at the S81 row level. In that case, routing must use the observed
+    row as-is instead of replaying the threshold split a second time.
+    """
+    if contribution.individual_code != "076" or contribution.amount is None:
+        return None
+    if contribution.base_amount_s81 is None or contribution.base_amount_s78 is None:
+        return None
+    if contribution.base_amount_s81 <= 0 or contribution.base_amount_s78 <= 0:
+        return None
+    if contribution.base_amount_s81 >= contribution.base_amount_s78:
+        return None
+
+    observed_rate = (
+        abs(contribution.amount) * Decimal(100) / contribution.base_amount_s81
+    ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+    matches: list[str] = []
+    for target_ctp in ("726", "100"):
+        expected_rate = APPRENTICE_SPLIT_EXACT_RATE_BY_CODE_BASE_AND_CTP.get(
+            (contribution.individual_code, contribution.base_code_s78, target_ctp),
+        )
+        if expected_rate is None:
+            continue
+        if _within_tolerance(observed_rate, expected_rate, Decimal("0.01")):
+            matches.append(target_ctp)
+
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _allocate_apprentice_amount(
@@ -464,7 +512,17 @@ def _allocate_apprentice_amount(
     if ctp_code not in {"100", "726"} or not is_apprentice:
         return contribution.amount, None
 
-    if contribution.base_amount_s78 is None or contribution.base_amount_s78 <= 0:
+    if contribution.amount is None:
+        return None, None
+
+    pre_split_target = _observed_apprentice_target_ctp(contribution)
+    if pre_split_target is not None:
+        if ctp_code == pre_split_target:
+            return contribution.amount, None
+        return None, None
+
+    base_amount = contribution.base_amount_s81 or contribution.base_amount_s78
+    if base_amount is None or base_amount <= 0:
         return None, "missing_threshold_context"
     if contribution.threshold_context_issue is not None:
         return None, contribution.threshold_context_issue
@@ -476,7 +534,6 @@ def _allocate_apprentice_amount(
     if threshold is None:
         return None, "missing_threshold_context"
 
-    base_amount = contribution.base_amount_s78
     base_726 = min(base_amount, threshold)
     base_100 = max(base_amount - threshold, Decimal(0))
     target_base = base_726 if ctp_code == "726" else base_100
@@ -581,7 +638,9 @@ def _collect_s81_by_individual_code(
                 if not code_81:
                     continue
                 amt = _dec(_find_value(s81.records, "S21.G00.81.004"))
-                if amt is None:
+                base_amount_81 = _dec(_find_value(s81.records, "S21.G00.81.003"))
+                rate_percent = _dec(_find_value(s81.records, "S21.G00.81.007"))
+                if amt is None and base_amount_81 is None and rate_percent is None:
                     continue
                 by_code.setdefault(code_81, []).append(EmployeeS81Contribution(
                     employee_index=emp_idx,
@@ -591,6 +650,8 @@ def _collect_s81_by_individual_code(
                     record_lines=_record_lines(s81.records),
                     base_code_s78=base_code_78,
                     base_amount_s78=base_amount_78,
+                    base_amount_s81=base_amount_81,
+                    rate_percent=rate_percent,
                     contract_natures=contract_natures,
                     contract_start_date=contract_start_date,
                     threshold_context_issue=threshold_context_issue,
@@ -867,11 +928,22 @@ def _build_urssaf_code_breakdowns(
                 filtered_rows.append(row)
             included_rows = filtered_rows
 
+        if ctp == "100" and mapped != "100P":
+            included_rows = [
+                row for row in included_rows
+                if "02" not in row.contract_natures
+            ]
+
+        has_partial_employee_inputs = any(row.amount is None for row in included_rows)
+        has_excluded_component_matches = bool(excluded_entries)
+
         # Phase 4.6: Apprentice threshold allocation for CTP 726 / 100.
         allocation_excluded_entries: list[dict[str, str]] = []
-        if ctp in {"100", "726"}:
+        if mapped in {"100P", "726P"}:
             allocated_rows: list[tuple[EmployeeS81Contribution, Decimal]] = []
             for row in included_rows:
+                if row.amount is None:
+                    continue
                 allocated_amount, exclusion_reason = _allocate_apprentice_amount(
                     ctp,
                     row,
@@ -888,9 +960,14 @@ def _build_urssaf_code_breakdowns(
                     continue
                 allocated_rows.append((row, allocated_amount))
         else:
-            allocated_rows = [(row, row.amount) for row in included_rows]
+            allocated_rows = [
+                (row, row.amount)
+                for row in included_rows
+                if row.amount is not None
+            ]
         excluded_entries.extend(allocation_excluded_entries)
         row_warnings.extend(_format_apprentice_allocation_warnings(allocation_excluded_entries))
+        has_excluded_component_matches = has_excluded_component_matches or bool(allocation_excluded_entries)
 
         # Phase 5: Aggregate and emit.
         individual_code_display = (
@@ -967,16 +1044,27 @@ def _build_urssaf_code_breakdowns(
         ]
 
         delta: Decimal | None = None
-        if declared is not None:
-            delta = declared - individual_total
-        if display_absolute:
-            # Business tolerance for reduction rows compares magnitudes.
-            delta_within_unit = _urssaf_row_delta_within_unit(
-                abs(declared) if declared is not None else None,
-                abs(individual_total),
-            )
+        delta_within_unit = False
+        comparison_mode: str | None = None
+        if (
+            mapped in {"100D", "726D", "863D"}
+            and amount_source == "reconstructed"
+            and (has_partial_employee_inputs or has_excluded_component_matches)
+        ):
+            comparison_mode = "informational_partial"
+            if _PARTIAL_RECONSTRUCTED_D_WARNING not in row_warnings:
+                row_warnings.append(_PARTIAL_RECONSTRUCTED_D_WARNING)
         else:
-            delta_within_unit = _urssaf_row_delta_within_unit(declared, individual_total)
+            if declared is not None:
+                delta = declared - individual_total
+            if display_absolute:
+                # Business tolerance for reduction rows compares magnitudes.
+                delta_within_unit = _urssaf_row_delta_within_unit(
+                    abs(declared) if declared is not None else None,
+                    abs(individual_total),
+                )
+            else:
+                delta_within_unit = _urssaf_row_delta_within_unit(declared, individual_total)
 
         breakdowns.append(UrssafCodeBreakdown(
             ctp_code=ctp,
@@ -992,6 +1080,7 @@ def _build_urssaf_code_breakdowns(
             individual_amount=individual_total,
             delta=delta,
             delta_within_unit=delta_within_unit,
+            comparison_mode=comparison_mode,
             display_absolute=display_absolute,
             employees=employees,
             warnings=row_warnings,
