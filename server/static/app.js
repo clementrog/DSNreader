@@ -139,7 +139,7 @@
     activeEstIdx: 0,
     activeContributionTab: "urssaf",
     activePage: "controle",
-    contribFilterEcartsOnly: true,
+    contribFilterEcartsOnly: false,
     expandedContribItems: {},
     // Slice D: per-CTP expansion keyed by "{itemStableKey}:{ctp_code}".
     // Default (no entry) means "follow the écart auto-expand rule".
@@ -1158,7 +1158,7 @@
   }
 
   function getItemDefaultExpanded(item) {
-    return true;
+    return false;
   }
 
   function isItemExpanded(item) {
@@ -2050,7 +2050,7 @@
       activeEstIdx: 0,
       activeContributionTab: "urssaf",
       activePage: "controle",
-      contribFilterEcartsOnly: true,
+      contribFilterEcartsOnly: false,
       expandedContribItems: {},
       expandedUrssafCtps: {},
       hasUploadAttempted: false,

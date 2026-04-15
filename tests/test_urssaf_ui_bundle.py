@@ -193,17 +193,30 @@ def test_compact_expansion_warning_replaces_banner():
     )
 
 
-def test_default_filter_hides_ok_rows():
-    """The URSSAF 'écarts only' filter defaults to ON so the user lands on
-    just the rows that need attention — rather than the full reconciled
-    list. Default lives in initial state and in the state.reset path."""
+def test_default_filter_shows_all_rows():
+    """The URSSAF 'écarts only' filter defaults to OFF so a fresh DSN upload
+    starts from the neutral full-list view. Default lives in initial state
+    and in the state.reset path."""
     text = _app_js()
-    # Both the initial declaration and the reset path must default to true.
-    matches = re.findall(r"contribFilterEcartsOnly:\s*true", text)
+    # Both the initial declaration and the reset path must default to false.
+    matches = re.findall(r"contribFilterEcartsOnly:\s*false", text)
     assert len(matches) >= 2, (
-        "`contribFilterEcartsOnly` must default to `true` in both the "
+        "`contribFilterEcartsOnly` must default to `false` in both the "
         "initial state declaration and the state-reset path; "
-        f"found {len(matches)} `: true` occurrences."
+        f"found {len(matches)} `: false` occurrences."
+    )
+
+
+def test_contribution_sections_collapsed_by_default():
+    """Contribution sections start collapsed on a fresh render so a newly
+    uploaded DSN opens on a compact overview instead of an expanded stack."""
+    text = _app_js()
+    assert re.search(
+        r"function getItemDefaultExpanded\(item\)\s*\{\s*return false;\s*\}",
+        text,
+    ) is not None, (
+        "`getItemDefaultExpanded()` must return `false` so contribution "
+        "sections are collapsed by default after a new upload."
     )
 
 
