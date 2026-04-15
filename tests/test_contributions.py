@@ -34,7 +34,7 @@ from dsn_extractor.organisms import (
     _COMPLEMENTARY_FAMILY_OVERRIDES_TSV,
     _TSV_NAME,
 )
-from dsn_extractor.parser import DSNRecord, EmployeeBlock, EstablishmentBlock
+from dsn_extractor.parser import DSNRecord, EmployeeBlock, EstablishmentBlock, parse_lines, segment
 
 
 # ---------------------------------------------------------------------------
@@ -1769,9 +1769,8 @@ class TestUrssafMappedCodeSplit:
         assert "076" not in b_d.applied_individual_codes
 
     def test_urssaf_100D_no_declared_still_rattachable(self):
-        """AT_RATE_ONLY_CTPS blocks recompute for 100/920 (.005 absent).
-        The D row must still surface as rattachable with its component-
-        scoped individual_amount and declared_amount=None."""
+        """AT-only 100D rows are now reconstructed from assiette × taux de
+        référence, while keeping the employee-side drill-down intact."""
         emp = self._employee(
             *self._s78_s81("045", "80.00", base_code="03", start_line=20),
         )
@@ -1791,9 +1790,10 @@ class TestUrssafMappedCodeSplit:
         bs = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "100"]
         b_d = [b for b in bs if b.mapped_code == "100D"][0]
         assert b_d.mapping_status == "rattachable"
-        assert b_d.declared_amount is None
+        assert b_d.declared_amount == Decimal("1317.00")
+        assert b_d.amount_source == "reconstructed"
         assert b_d.individual_amount == Decimal("80.00")
-        assert b_d.delta is None
+        assert b_d.delta == Decimal("1237.00")
 
     def test_urssaf_single_qualifier_ctp_unchanged(self):
         """Single-qualifier CTPs produce exactly one row (no D/P split)."""
@@ -1863,7 +1863,288 @@ class TestUrssafMappedCodeSplit:
         assert b.mapped_code == "668"  # flat rule, no D/P suffix
         assert b.display_absolute is True
         assert b.individual_amount == Decimal("-120.00")
-        assert b.employees[0].individual_codes == ["018"]
+
+
+class TestUrssafApprenticeAllocation:
+    REFERENCE_DATE = dt.date(2025, 3, 31)
+
+    @staticmethod
+    def _employee(
+        *,
+        empno: str = "1",
+        contract_nature: str = "02",
+        contract_start: str | None = "15012025",
+        amount: str = "200.00",
+        base_amount: str = "2000.00",
+        base_code: str = "02",
+        individual_code: str = "076",
+        start_line: int = 20,
+    ) -> EmployeeBlock:
+        records = [
+            _r("S21.G00.30.001", empno, 10),
+            _r("S21.G00.30.002", "DUPONT", 11),
+            _r("S21.G00.30.004", "Jean", 12),
+        ]
+        if contract_start is not None:
+            records.append(_r("S21.G00.40.001", contract_start, 13))
+        records.append(_r("S21.G00.40.007", contract_nature, 14))
+        records.extend([
+            _r("S21.G00.78.001", base_code, start_line),
+            _r("S21.G00.78.004", base_amount, start_line + 1),
+            _r("S21.G00.81.001", individual_code, start_line + 2),
+            _r("S21.G00.81.004", amount, start_line + 3),
+        ])
+        return _emp(*records)
+
+    def _urssaf(self, est: EstablishmentBlock, *, reference_date: dt.date | None = None):
+        cc = compute_contribution_comparisons(est, reference_date=reference_date or self.REFERENCE_DATE)
+        return [i for i in cc.items if i.family == "urssaf"][0]
+
+    @staticmethod
+    def _est_with_100_726_split(
+        *,
+        declared_100: str,
+        declared_726: str,
+        assiette: str = "921",
+        employees: list[EmployeeBlock],
+    ) -> EstablishmentBlock:
+        total = (Decimal(declared_100) + Decimal(declared_726)).quantize(Decimal("0.01"))
+        return _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", str(total), 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", str(total), 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", assiette, 6),
+            _r("S21.G00.23.005", declared_100, 7),
+            _r("S21.G00.23.001", "726", 8),
+            _r("S21.G00.23.002", assiette, 9),
+            _r("S21.G00.23.005", declared_726, 10),
+            employees=employees,
+        )
+
+    def test_apprentice_below_threshold_stays_fully_in_726(self):
+        emp = self._employee(base_amount="800.00", amount="68.40", contract_start="15042025")
+        urssaf = self._urssaf(
+            self._est_with_100_726_split(
+                declared_100="0.00",
+                declared_726="68.40",
+                employees=[emp],
+            )
+        )
+
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+        assert rows["726P"].individual_amount == Decimal("68.40")
+        assert rows["726P"].delta == Decimal("0.00")
+        assert rows["100P"].mapping_status == "manquant_individuel"
+
+    def test_apprentice_above_threshold_splits_between_726_and_100(self):
+        emp = self._employee(base_amount="2000.00", amount="246.84", contract_start="15042025")
+        urssaf = self._urssaf(
+            self._est_with_100_726_split(
+                declared_100="169.81",
+                declared_726="77.03",
+                employees=[emp],
+            )
+        )
+
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+        assert rows["726P"].individual_amount == Decimal("77.03")
+        assert rows["100P"].individual_amount == Decimal("169.81")
+        assert rows["726P"].delta == Decimal("0.00")
+        assert rows["100P"].delta == Decimal("0.00")
+        assert rows["726P"].individual_amount + rows["100P"].individual_amount == Decimal("246.84")
+
+    def test_pre_march_2025_hire_uses_79_percent_threshold(self):
+        emp = self._employee(base_amount="2000.00", amount="210.78", contract_start="15012025")
+        urssaf = self._urssaf(
+            self._est_with_100_726_split(
+                declared_100="89.08",
+                declared_726="121.70",
+                employees=[emp],
+            )
+        )
+
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+        assert rows["726P"].individual_amount == Decimal("121.70")
+        assert rows["100P"].individual_amount == Decimal("89.08")
+
+    def test_non_apprentice_100_remains_unchanged(self):
+        emp = self._employee(
+            contract_nature="01",
+            contract_start="15042025",
+            base_amount="2000.00",
+            amount="200.00",
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "200.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "200.00", 4),
+            _r("S21.G00.23.001", "100", 5),
+            _r("S21.G00.23.002", "921", 6),
+            _r("S21.G00.23.005", "200.00", 7),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        row = [b for b in urssaf.urssaf_code_breakdowns if b.mapped_code == "100P"][0]
+        assert row.individual_amount == Decimal("200.00")
+        assert row.delta == Decimal("0.00")
+
+    def test_863_is_not_affected_by_apprentice_split(self):
+        emp = self._employee(
+            contract_nature="80",
+            contract_start="15042025",
+            base_amount="1000.00",
+            amount="101.97",
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "101.97", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "101.97", 4),
+            _r("S21.G00.23.001", "863", 5),
+            _r("S21.G00.23.002", "921", 6),
+            _r("S21.G00.23.005", "101.97", 7),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        row = [b for b in urssaf.urssaf_code_breakdowns if b.mapped_code == "863P"][0]
+        assert row.individual_amount == Decimal("101.97")
+        assert row.delta == Decimal("0.00")
+
+    def test_synthetic_apprentice_fixture_round_trips_from_dsn_file(self):
+        fixture = Path(__file__).parent / "fixtures" / "apprentice_threshold_split.dsn"
+        records, skipped = parse_lines(fixture.read_text(encoding="utf-8"))
+        assert skipped == []
+        parsed = segment(records, skipped)
+        assert len(parsed.establishments) == 1
+
+        urssaf = self._urssaf(parsed.establishments[0])
+        assert urssaf.status == "ok"
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+        assert rows["726P"].individual_amount == Decimal("77.03")
+        assert rows["100P"].individual_amount == Decimal("169.81")
+
+    def test_thomas_like_minimized_fixture_resolves_100p_and_726p_to_ok(self):
+        fixture = Path(__file__).parent / "fixtures" / "thomas_like_100_726_ok_minimized.dsn"
+        records, skipped = parse_lines(fixture.read_text(encoding="utf-8"))
+        assert skipped == []
+        parsed = segment(records, skipped)
+        assert len(parsed.establishments) == 1
+
+        urssaf = self._urssaf(parsed.establishments[0])
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+
+        assert rows["100P"].mapping_status == "rattachable"
+        assert rows["726P"].mapping_status == "rattachable"
+        assert rows["100P"].delta == Decimal("0.00")
+        assert rows["726P"].delta == Decimal("0.00")
+        assert rows["100P"].delta_within_unit is True
+        assert rows["726P"].delta_within_unit is True
+
+    @pytest.mark.parametrize("individual_code", ["045", "068", "074", "075"])
+    def test_d_variant_split_uses_same_code_rate_for_non_076_codes(self, individual_code: str):
+        emp = self._employee(
+            individual_code=individual_code,
+            base_code="03",
+            base_amount="2000.00",
+            amount="60.00",
+            contract_start="15042025",
+        )
+        urssaf = self._urssaf(
+            self._est_with_100_726_split(
+                declared_100="32.97",
+                declared_726="27.03",
+                assiette="920",
+                employees=[emp],
+            )
+        )
+
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+        assert rows["726D"].individual_amount == Decimal("27.03")
+        assert rows["100D"].individual_amount == Decimal("32.97")
+        assert rows["726D"].delta == Decimal("0.00")
+        assert rows["100D"].delta == Decimal("0.00")
+        assert rows["726D"].employees[0].individual_codes == [individual_code]
+        assert rows["100D"].employees[0].individual_codes == [individual_code]
+
+    def test_valid_and_missing_threshold_context_share_same_rows_without_row_wide_refusal(self):
+        valid_emp = self._employee(
+            empno="1",
+            contract_start="15042025",
+            amount="246.84",
+            base_amount="2000.00",
+        )
+        missing_context_emp = self._employee(
+            empno="2",
+            contract_start=None,
+            amount="246.84",
+            base_amount="2000.00",
+            start_line=40,
+        )
+        urssaf = self._urssaf(
+            self._est_with_100_726_split(
+                declared_100="339.62",
+                declared_726="154.06",
+                employees=[valid_emp, missing_context_emp],
+            )
+        )
+
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+        assert rows["726P"].mapping_status == "rattachable"
+        assert rows["100P"].mapping_status == "rattachable"
+        assert rows["726P"].individual_amount == Decimal("77.03")
+        assert rows["100P"].individual_amount == Decimal("169.81")
+        assert any(e["reason"] == "missing_threshold_context" for e in rows["726P"].excluded_individual_codes)
+        assert any("contexte de seuil apprenti manquant" in warning for warning in rows["726P"].warnings)
+        assert any(e.get("employee_name") == "DUPONT Jean" for e in rows["100P"].excluded_individual_codes)
+
+    def test_multi_contract_apprentice_context_is_rejected_without_poisoning_other_rows(self):
+        valid_emp = self._employee(
+            empno="1",
+            contract_start="15042025",
+            amount="246.84",
+            base_amount="2000.00",
+        )
+        multi_contract_emp = _emp(
+            _r("S21.G00.30.001", "2", 100),
+            _r("S21.G00.30.002", "MARTIN", 101),
+            _r("S21.G00.30.004", "Claire", 102),
+            _r("S21.G00.40.001", "01012025", 103),
+            _r("S21.G00.40.001", "15042025", 104),
+            _r("S21.G00.40.007", "02", 105),
+            _r("S21.G00.78.001", "02", 106),
+            _r("S21.G00.78.004", "2000.00", 107),
+            _r("S21.G00.81.001", "076", 108),
+            _r("S21.G00.81.004", "246.84", 109),
+        )
+        urssaf = self._urssaf(
+            self._est_with_100_726_split(
+                declared_100="339.62",
+                declared_726="154.06",
+                employees=[valid_emp, multi_contract_emp],
+            )
+        )
+
+        rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+        assert rows["726P"].mapping_status == "rattachable"
+        assert rows["726P"].individual_amount == Decimal("77.03")
+        assert any(e["reason"] == "unsupported_multi_contract_context" for e in rows["726P"].excluded_individual_codes)
+        assert any("plusieurs contrats apprenti" in warning for warning in rows["100P"].warnings)
+        assert any("lien contrat par contrat" in warning for warning in rows["100P"].warnings)
+
+    def test_apprentice_split_raises_when_reference_date_predates_supported_smic_table(self):
+        emp = self._employee(base_amount="2000.00", amount="246.84", contract_start="15042024")
+        with pytest.raises(ValueError, match="SMIC table does not support reference_date"):
+            self._urssaf(
+                self._est_with_100_726_split(
+                    declared_100="169.81",
+                    declared_726="77.03",
+                    employees=[emp],
+                ),
+                reference_date=dt.date(2024, 10, 31),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1876,7 +2157,7 @@ class TestNewMappingRuntime:
 
     @staticmethod
     def _employee(*extra_records, nom="DUPONT", prenom="Jean", empno="1",
-                  contract_nature=None):
+                  contract_nature=None, contract_start="15012025"):
         base_line = 10
         records = [
             _r("S21.G00.30.001", empno, base_line),
@@ -1884,7 +2165,8 @@ class TestNewMappingRuntime:
             _r("S21.G00.30.004", prenom, base_line + 2),
         ]
         if contract_nature:
-            records.append(_r("S21.G00.40.007", contract_nature, base_line + 3))
+            records.append(_r("S21.G00.40.001", contract_start, base_line + 3))
+            records.append(_r("S21.G00.40.007", contract_nature, base_line + 4))
         records.extend(extra_records)
         return _emp(*records)
 
@@ -2280,7 +2562,7 @@ class TestNewMappingRuntime:
     # ---- Mixed apprentice/non-apprentice in same establishment --------------
 
     def test_mixed_apprentice_and_regular_employees(self):
-        """CTP 100 excludes apprentice employees, CTP 726 includes only them."""
+        """CTP 100 receives the regular share, while CTP 726 keeps the apprentice share."""
         emp_regular = self._employee(
             *self._s78_with_s81("045", "100.00", base_code="03", start_line=20),
             nom="REGULAR", prenom="Alice", empno="1", contract_nature="01",
@@ -2471,7 +2753,7 @@ class TestURSSAFReferenceRates:
             ("863", "660.00", Decimal("21.06")),
         ],
     )
-    def test_at_only_ctp_rate_does_not_trigger_mismatch_or_amount_recompute(
+    def test_at_only_ctp_rate_reconstructs_declared_amount_without_rate_mismatch(
         self,
         ctp_code: str,
         base: str,
@@ -2500,14 +2782,14 @@ class TestURSSAFReferenceRates:
         assert detail.mapped_code == f"{ctp_code}D"
         assert detail.rate == Decimal("0.71")
         assert detail.expected_rate == expected_rate
-        assert detail.computed_amount is None
+        assert detail.computed_amount is not None
+        assert detail.amount_source == "reconstructed"
         assert detail.rate_mismatch is False
         assert detail.amount_mismatch is False
-        assert detail.status == "non_calculable"
+        assert detail.status == "computed_only"
         assert detail.warnings == []
-        assert urssaf.component_amount is None
-        assert any("Sous-total CTP non affiché" in w for w in urssaf.warnings)
-        assert urssaf.status == "ok"
+        assert urssaf.component_amount is not None
+        assert urssaf.status == "ecart"
 
     def test_reference_rate_uses_declaration_date_and_assiette_mapping(self):
         est = _est(
@@ -2657,6 +2939,59 @@ class TestURSSAFReferenceRates:
         assert detail.rate_mismatch is False
         assert detail.amount_mismatch is False
         assert detail.status == "declared_only"
+
+
+class TestUrssafAmountSourceRollup:
+    @pytest.mark.parametrize(
+        ("ctp_code", "expected_declared_amount"),
+        [
+            ("100", Decimal("142.60")),
+            ("726", Decimal("138.60")),
+            ("863", Decimal("220.60")),
+        ],
+    )
+    @pytest.mark.parametrize("declared_first", [True, False])
+    def test_mixed_declared_and_reconstructed_rolls_up_to_mixed_order_independent(
+        self,
+        ctp_code: str,
+        expected_declared_amount: Decimal,
+        declared_first: bool,
+    ):
+        declared_line = [
+            _r("S21.G00.23.001", ctp_code, 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.005", "10.00", 7),
+        ]
+        reconstructed_line = [
+            _r("S21.G00.23.001", ctp_code, 10),
+            _r("S21.G00.23.002", "920", 11),
+            _r("S21.G00.23.003", "0.71", 12),
+            _r("S21.G00.23.004", "1000.00", 13),
+        ]
+        line_records = declared_line + reconstructed_line if declared_first else reconstructed_line + declared_line
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "100.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "100.00", 4),
+            *line_records,
+        )
+        cc = compute_contribution_comparisons(est, reference_date=dt.date(2026, 3, 31))
+        urssaf = [i for i in cc.items if i.family == "urssaf"][0]
+
+        detail_sources = sorted(
+            detail.amount_source
+            for detail in urssaf.details
+            if detail.ctp_code == ctp_code
+        )
+        breakdown = next(
+            b for b in urssaf.urssaf_code_breakdowns
+            if b.ctp_code == ctp_code
+        )
+
+        assert detail_sources == ["declared", "reconstructed"]
+        assert breakdown.amount_source == "mixed"
+        assert breakdown.declared_amount == expected_declared_amount
 
 
 class TestRetraite:

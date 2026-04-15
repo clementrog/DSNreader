@@ -115,7 +115,7 @@ _RULES: dict[str, UrssafMappingRule] = {
             ),
         ),
         conditions=UrssafMappingConditions(
-            excludes_contract_nature=frozenset({"02", "80"}),
+            excludes_contract_nature=frozenset({"80"}),
         ),
         confidence="high",
         product_status="enabled",

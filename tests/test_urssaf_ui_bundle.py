@@ -193,6 +193,34 @@ def test_compact_expansion_warning_replaces_banner():
     )
 
 
+def test_reconstructed_declared_amount_badge_present():
+    """Rebuilt D rows surface a clear reconstructed marker in the collapsed
+    `Déclaré` cell instead of staying visually empty."""
+    text = _app_js()
+    assert "Reconstitu\\u00e9" in text, (
+        "Expected `Reconstitué` badge copy in app.js for reconstructed "
+        "URSSAF declared amounts."
+    )
+    assert "amount_source === 'reconstructed'" in text, (
+        "The URSSAF bundle must branch on `amount_source === 'reconstructed'` "
+        "to render reconstructed declared amounts distinctly."
+    )
+
+
+def test_mixed_declared_amount_badge_present():
+    """Mixed declared+reconstructed rows surface an explicit cue instead of
+    inheriting the last processed detail source."""
+    text = _app_js()
+    assert "amount_source === 'mixed'" in text, (
+        "The URSSAF bundle must branch on `amount_source === 'mixed'` so "
+        "mixed rows do not pretend to be fully reconstructed or fully literal."
+    )
+    assert "Mixte" in text, (
+        "Expected `Mixte` copy in app.js for partially reconstructed URSSAF "
+        "declared amounts."
+    )
+
+
 def test_default_filter_shows_all_rows():
     """The URSSAF 'écarts only' filter defaults to OFF so a fresh DSN upload
     starts from the neutral full-list view. Default lives in initial state

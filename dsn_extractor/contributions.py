@@ -26,7 +26,7 @@ from dsn_extractor.models import (
     EmployeeContributionBreakdown,
     UrssafCodeBreakdown,
 )
-from dsn_extractor.normalize import normalize_decimal
+from dsn_extractor.normalize import normalize_date, normalize_decimal
 from dsn_extractor.organisms import (
     ORGANISM_REGISTRY,
     CTP_LABELS,
@@ -131,6 +131,36 @@ AT_RATE_ONLY_CTPS: set[tuple[str, str]] = {
     ("726", "920"),
     ("734", "920"),
     ("863", "920"),
+}
+
+# Official monthly gross SMIC values used by the apprentice threshold helper.
+# Sources:
+# - Service-Public verified 2025-06-13: 1 801,80 € from 2024-11-01
+# - 2026 payroll baseline already used elsewhere in the repo: 1 823,03 € from 2026-01-01
+MONTHLY_SMIC_BY_EFFECTIVE_DATE: tuple[tuple[dt.date, Decimal], ...] = (
+    (dt.date(2024, 11, 1), Decimal("1801.80")),
+    (dt.date(2026, 1, 1), Decimal("1823.03")),
+)
+
+APPRENTICE_THRESHOLD_SWITCH_DATE = dt.date(2025, 3, 1)
+RECONSTRUCTABLE_AT_ONLY_CTPS: set[tuple[str, str]] = {
+    ("100", "920"),
+    ("726", "920"),
+    ("863", "920"),
+}
+APPRENTICE_SPLIT_EXACT_RATE_BY_CODE_BASE_AND_CTP: dict[tuple[str, str, str], Decimal] = {
+    # Publicodes DSN 13.1 apprentice-specific slices for S81 code 076.
+    # 726 keeps the under-threshold share; 100 receives the excess share.
+    ("076", "03", "726"): Decimal("2.02"),
+    ("076", "03", "100"): Decimal("2.42"),
+    ("076", "02", "726"): Decimal("8.55"),
+    ("076", "02", "100"): Decimal("15.45"),
+}
+APPRENTICE_SPLIT_OBSERVED_RATE_CODES = frozenset({"045", "068", "074", "075"})
+APPRENTICE_THRESHOLD_CONTEXT_LABELS: dict[str, str] = {
+    "missing_threshold_context": "contexte de seuil apprenti manquant",
+    "unsupported_multi_contract_context": "plusieurs contrats apprenti dans le même salarié ne sont pas encore rattachés contrat par contrat",
+    "unsupported_apprentice_component": "composant apprenti non pris en charge",
 }
 
 
@@ -342,42 +372,179 @@ _PARTIAL_CTP_WARNING = (
 )
 
 
-def _collect_employee_contract_natures(
-    employee_blocks: list[EmployeeBlock],
-) -> dict[int, frozenset[str]]:
-    """Map employee index → set of S21.G00.40.007 contract nature values."""
-    result: dict[int, frozenset[str]] = {}
-    for idx, emp in enumerate(employee_blocks):
-        natures = frozenset(
-            v.strip() for v in _find_all_values(emp.records, "S21.G00.40.007")
-            if v and v.strip()
+@dataclass(frozen=True)
+class EmployeeS81Contribution:
+    employee_index: int
+    employee_name: str
+    individual_code: str
+    amount: Decimal
+    record_lines: list[int]
+    base_code_s78: str
+    base_amount_s78: Decimal | None
+    contract_natures: frozenset[str]
+    contract_start_date: dt.date | None
+    threshold_context_issue: str | None = None
+
+
+def _lookup_monthly_smic(reference_date: dt.date | None) -> Decimal:
+    target_date = reference_date or MONTHLY_SMIC_BY_EFFECTIVE_DATE[-1][0]
+    earliest_supported = MONTHLY_SMIC_BY_EFFECTIVE_DATE[0][0]
+    if target_date < earliest_supported:
+        raise ValueError(
+            "Apprentice threshold SMIC table does not support reference_date "
+            f"{target_date.isoformat()} (supported from {earliest_supported.isoformat()})."
         )
-        result[idx] = natures
-    return result
+    selected = MONTHLY_SMIC_BY_EFFECTIVE_DATE[0][1]
+    for effective_date, amount in MONTHLY_SMIC_BY_EFFECTIVE_DATE:
+        if effective_date <= target_date:
+            selected = amount
+        else:
+            break
+    return selected
+
+
+def _compute_apprentice_threshold(
+    contract_start_date: dt.date | None,
+    reference_date: dt.date | None,
+) -> Decimal | None:
+    if contract_start_date is None:
+        return None
+    smic = _lookup_monthly_smic(reference_date)
+    multiplier = Decimal("0.50") if contract_start_date >= APPRENTICE_THRESHOLD_SWITCH_DATE else Decimal("0.79")
+    return (smic * multiplier).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _infer_apprentice_exact_rate_percent(
+    contribution: EmployeeS81Contribution,
+    ctp_code: str,
+) -> Decimal | None:
+    # DSN 13.1 defines apprentice-specific explicit rates only for S81 code 076.
+    # For 045 / 068 / 074 / 075, the source rules still define each amount as
+    # "this code's assiette × this code's rate", while DSN 13.3 moves only the
+    # assiette split between CTP 726 and CTP 100. In that configuration, the
+    # exact legal rate for the split is the rate already embedded in the S81
+    # row itself: amount / assiette. Reusing that derived rate on the threshold
+    # sub-assiette is therefore equivalent to replaying the publicodes formula,
+    # without inventing a hard-coded rate table that does not exist for these
+    # codes in the source docs. If future source docs expose explicit
+    # apprentice rates for 045 / 068 / 074 / 075, replace this derived-rate
+    # path immediately with rule-backed constants.
+    explicit_rate = APPRENTICE_SPLIT_EXACT_RATE_BY_CODE_BASE_AND_CTP.get(
+        (contribution.individual_code, contribution.base_code_s78, ctp_code),
+    )
+    if explicit_rate is not None:
+        return explicit_rate
+
+    if contribution.individual_code not in APPRENTICE_SPLIT_OBSERVED_RATE_CODES:
+        return None
+    if contribution.base_amount_s78 is None or contribution.base_amount_s78 <= 0:
+        return None
+
+    return (
+        abs(contribution.amount) * Decimal(100) / contribution.base_amount_s78
+    ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+
+def _allocate_apprentice_amount(
+    ctp_code: str,
+    contribution: EmployeeS81Contribution,
+    reference_date: dt.date | None,
+) -> tuple[Decimal | None, str | None]:
+    """Return the employee amount allocable to the requested apprentice CTP.
+
+    Returns ``(amount, exclusion_reason)``. ``exclusion_reason`` is populated
+    when the apprentice row cannot be split safely and must be excluded from
+    the threshold allocation, without invalidating the rest of the CTP row.
+    """
+    is_apprentice = "02" in contribution.contract_natures
+    if ctp_code == "100" and not is_apprentice:
+        return contribution.amount, None
+    if ctp_code == "726" and not is_apprentice:
+        return None, None
+    if ctp_code not in {"100", "726"} or not is_apprentice:
+        return contribution.amount, None
+
+    if contribution.base_amount_s78 is None or contribution.base_amount_s78 <= 0:
+        return None, "missing_threshold_context"
+    if contribution.threshold_context_issue is not None:
+        return None, contribution.threshold_context_issue
+
+    threshold = _compute_apprentice_threshold(
+        contribution.contract_start_date,
+        reference_date,
+    )
+    if threshold is None:
+        return None, "missing_threshold_context"
+
+    base_amount = contribution.base_amount_s78
+    base_726 = min(base_amount, threshold)
+    base_100 = max(base_amount - threshold, Decimal(0))
+    target_base = base_726 if ctp_code == "726" else base_100
+    if target_base <= 0:
+        return None, None
+
+    rate_percent = _infer_apprentice_exact_rate_percent(contribution, ctp_code)
+    if rate_percent is None:
+        return None, "unsupported_apprentice_component"
+
+    signed_target = Decimal("-1") if contribution.amount < 0 else Decimal("1")
+    allocated_amount = (
+        target_base * rate_percent / Decimal(100)
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return signed_target * allocated_amount, None
+
+
+def _format_apprentice_allocation_warnings(
+    excluded_entries: list[dict[str, str]],
+) -> list[str]:
+    by_reason: dict[str, list[str]] = {}
+    for entry in excluded_entries:
+        reason = entry.get("reason") or ""
+        if reason not in APPRENTICE_THRESHOLD_CONTEXT_LABELS:
+            continue
+        employee_name = entry.get("employee_name") or "salarié inconnu"
+        names = by_reason.setdefault(reason, [])
+        if employee_name not in names:
+            names.append(employee_name)
+
+    warnings: list[str] = []
+    for reason, employee_names in sorted(by_reason.items()):
+        suffix = ""
+        if reason == "unsupported_multi_contract_context":
+            suffix = " Le rapprochement reste partiel jusqu'à la mise en place du lien contrat par contrat."
+        warnings.append(
+            "Certaines lignes apprenti ont été exclues de la ventilation "
+            f"100/726 : {APPRENTICE_THRESHOLD_CONTEXT_LABELS[reason]} "
+            f"({', '.join(employee_names)}).{suffix}"
+        )
+    return warnings
+
+
+def _roll_up_amount_source(chosen_sources: set[str]) -> str | None:
+    if not chosen_sources:
+        return None
+    if len(chosen_sources) == 1:
+        return sorted(chosen_sources)[0]
+    return "mixed"
 
 
 def _collect_s81_by_individual_code(
     employee_blocks: list[EmployeeBlock],
-) -> tuple[dict[str, list[tuple[int, str, Decimal, list[int], str]]], bool]:
+) -> tuple[dict[str, list[EmployeeS81Contribution]], bool]:
     """Scan employees once and bucket S81 amounts by individual code.
 
     Returns a tuple ``(by_code, has_any_s78_s81)`` where:
         - ``by_code`` maps ``S21.G00.81.001`` → list of
-          ``(employee_index, employee_display_name, amount, record_lines,
-          base_code_s78)`` tuples. ``employee_index`` is the stable
-          position of the source block in ``employee_blocks`` and is used
-          by the caller as the aggregation key so that two distinct
-          employees sharing the same visible name (homonyms) are never
-          collapsed into one row. ``base_code_s78`` is the parent S78
-          base code (``S21.G00.78.001``) used for component-scoped
-          matching. Multiple rows for the same (employee, code) pair are
-          preserved as separate tuples; the caller is responsible for
-          aggregation.
+          ``EmployeeS81Contribution`` rows. ``employee_index`` remains the
+          aggregation key so homonyms are never collapsed together. The
+          contribution row also carries S78 assiette context and employee
+          contract metadata so apprentice allocations can be split
+          deterministically between CTP 726 and CTP 100.
         - ``has_any_s78_s81`` is True when at least one S78 block exists in
           the scanned employees (used to decide whether to surface the
           "non_rattache despite individual data present" warning).
     """
-    by_code: dict[str, list[tuple[int, str, Decimal, list[int], str]]] = {}
+    by_code: dict[str, list[EmployeeS81Contribution]] = {}
     has_any_s78_s81 = False
 
     for emp_idx, emp in enumerate(employee_blocks):
@@ -385,9 +552,30 @@ def _collect_s81_by_individual_code(
         if emp_groups.s78_blocks:
             has_any_s78_s81 = True
         emp_name = _employee_display_name(emp)
+        contract_natures = frozenset(
+            v.strip() for v in _find_all_values(emp.records, "S21.G00.40.007")
+            if v and v.strip()
+        )
+        contract_start_dates = tuple(sorted({
+            parsed
+            for parsed in (
+                normalize_date(v.strip())
+                for v in _find_all_values(emp.records, "S21.G00.40.001")
+                if v and v.strip()
+            )
+            if parsed is not None
+        }))
+        contract_start_date = contract_start_dates[0] if len(contract_start_dates) == 1 else None
+        threshold_context_issue: str | None = None
+        if "02" in contract_natures:
+            if not contract_start_dates:
+                threshold_context_issue = "missing_threshold_context"
+            elif len(contract_start_dates) > 1 or len(contract_natures) > 1:
+                threshold_context_issue = "unsupported_multi_contract_context"
 
         for s78 in emp_groups.s78_blocks:
             base_code_78 = (_find_value(s78.records, "S21.G00.78.001") or "").strip()
+            base_amount_78 = _dec(_find_value(s78.records, "S21.G00.78.004"))
             for s81 in s78.children:
                 code_81 = (_find_value(s81.records, "S21.G00.81.001") or "").strip()
                 if not code_81:
@@ -395,20 +583,29 @@ def _collect_s81_by_individual_code(
                 amt = _dec(_find_value(s81.records, "S21.G00.81.004"))
                 if amt is None:
                     continue
-                by_code.setdefault(code_81, []).append(
-                    (emp_idx, emp_name, amt, _record_lines(s81.records), base_code_78)
-                )
+                by_code.setdefault(code_81, []).append(EmployeeS81Contribution(
+                    employee_index=emp_idx,
+                    employee_name=emp_name,
+                    individual_code=code_81,
+                    amount=amt,
+                    record_lines=_record_lines(s81.records),
+                    base_code_s78=base_code_78,
+                    base_amount_s78=base_amount_78,
+                    contract_natures=contract_natures,
+                    contract_start_date=contract_start_date,
+                    threshold_context_issue=threshold_context_issue,
+                ))
 
     return by_code, has_any_s78_s81
 
 
 def _build_urssaf_code_breakdowns(
     details: list[ContributionComparisonDetail],
-    s81_by_code: dict[str, list[tuple[int, str, Decimal, list[int], str]]],
+    s81_by_code: dict[str, list[EmployeeS81Contribution]],
     qualifiers_by_ctp: dict[str, set[str]],
     insee_codes_by_ctp: dict[str, set[str]],
     ctps_with_empty_qualifier: set[str] | None = None,
-    contract_natures_by_emp: dict[int, frozenset[str]] | None = None,
+    reference_date: dt.date | None = None,
 ) -> list[UrssafCodeBreakdown]:
     """Group URSSAF details by CTP code and attach employee drill-down.
 
@@ -438,6 +635,7 @@ def _build_urssaf_code_breakdowns(
     # fallback). Used by sign-gated rules (668/669) which must read the
     # actual declared sign, not an inferred one from base × rate.
     raw_declared_by_row: dict[tuple[str, str], Decimal | None] = {}
+    chosen_sources_by_row: dict[tuple[str, str], set[str]] = {}
     label_by_row: dict[tuple[str, str], str | None] = {}
     # A row is "complete" only when every one of its contributing detail
     # rows produced a chosen amount. Start optimistic, flip to False on the
@@ -462,6 +660,7 @@ def _build_urssaf_code_breakdowns(
             label_by_row[row_key] = d.label
             complete_by_row[row_key] = True
             qualifiers_by_row[row_key] = set()
+            chosen_sources_by_row[row_key] = set()
 
         if d.assiette_qualifier:
             qualifiers_by_row[row_key].add(d.assiette_qualifier)
@@ -481,6 +680,9 @@ def _build_urssaf_code_breakdowns(
         else:
             current = declared_by_row[row_key]
             declared_by_row[row_key] = (current or Decimal(0)) + chosen
+            chosen_sources_by_row[row_key].add(
+                "declared" if d.declared_amount is not None else "reconstructed"
+            )
 
         # Track raw declared separately (only S21.G00.23.005 values).
         if d.declared_amount is not None:
@@ -495,6 +697,11 @@ def _build_urssaf_code_breakdowns(
         # total so the UI cannot read a misleading "full" amount. The
         # individual side (from S78/S81) is orthogonal and stays real.
         declared = declared_by_row[row_key] if is_complete else None
+        amount_source = (
+            _roll_up_amount_source(chosen_sources_by_row.get(row_key, set()))
+            if declared is not None
+            else None
+        )
         label = label_by_row[row_key]
         row_warnings: list[str] = []
         if not is_complete:
@@ -525,6 +732,7 @@ def _build_urssaf_code_breakdowns(
                 applied_individual_codes=applied_codes or [],
                 excluded_individual_codes=excluded or [],
                 declared_amount=declared,
+                amount_source=amount_source,
                 display_absolute=display_absolute,
                 warnings=row_warnings,
             ))
@@ -567,7 +775,7 @@ def _build_urssaf_code_breakdowns(
                     continue
 
         # Phase 4: S81 row scanning.
-        included_rows: list[tuple[int, str, Decimal, list[int], str, str]] = []
+        included_rows: list[EmployeeS81Contribution] = []
         applied_codes: set[str] = set()
         excluded_entries: list[dict[str, str]] = []
 
@@ -617,11 +825,8 @@ def _build_urssaf_code_breakdowns(
             }
             for s81_code in candidate_codes:
                 for row in s81_by_code.get(s81_code, []):
-                    emp_idx, emp_name, amt, lines, base_code_78 = row
-                    if (s81_code, base_code_78) in acceptance_set:
-                        included_rows.append(
-                            (emp_idx, emp_name, amt, lines, base_code_78, s81_code)
-                        )
+                    if (s81_code, row.base_code_s78) in acceptance_set:
+                        included_rows.append(row)
                         applied_codes.add(s81_code)
                     else:
                         excluded_entries.append(
@@ -631,26 +836,20 @@ def _build_urssaf_code_breakdowns(
             # Path B: Flat matching (simple 1:1 or 1:N rules without components).
             for s81_code in rule.individual_codes_s81:
                 for row in s81_by_code.get(s81_code, []):
-                    emp_idx, emp_name, amt, lines, base_code_78 = row
-                    if rule.base_codes_s78 and base_code_78 not in rule.base_codes_s78:
+                    if rule.base_codes_s78 and row.base_code_s78 not in rule.base_codes_s78:
                         excluded_entries.append(
                             {"code": s81_code, "reason": "wrong_base"}
                         )
                         continue
-                    included_rows.append(
-                        (emp_idx, emp_name, amt, lines, base_code_78, s81_code)
-                    )
+                    included_rows.append(row)
                     applied_codes.add(s81_code)
 
         # Phase 4.5: Employee contract nature filtering.
         status_filter_missing_context = False
-        if contract_natures_by_emp is not None and (
-            rule.conditions.requires_contract_nature
-            or rule.conditions.excludes_contract_nature
-        ):
-            filtered_rows: list[tuple[int, str, Decimal, list[int], str, str]] = []
+        if rule.conditions.requires_contract_nature or rule.conditions.excludes_contract_nature:
+            filtered_rows: list[EmployeeS81Contribution] = []
             for row in included_rows:
-                emp_natures = contract_natures_by_emp.get(row[0], frozenset())
+                emp_natures = row.contract_natures
                 if rule.conditions.requires_contract_nature:
                     if not emp_natures:
                         # Employee has no S21.G00.40.007 — cannot evaluate
@@ -667,6 +866,31 @@ def _build_urssaf_code_breakdowns(
                         continue
                 filtered_rows.append(row)
             included_rows = filtered_rows
+
+        # Phase 4.6: Apprentice threshold allocation for CTP 726 / 100.
+        allocation_excluded_entries: list[dict[str, str]] = []
+        if ctp in {"100", "726"}:
+            allocated_rows: list[tuple[EmployeeS81Contribution, Decimal]] = []
+            for row in included_rows:
+                allocated_amount, exclusion_reason = _allocate_apprentice_amount(
+                    ctp,
+                    row,
+                    reference_date,
+                )
+                if exclusion_reason is not None:
+                    allocation_excluded_entries.append({
+                        "code": row.individual_code,
+                        "reason": exclusion_reason,
+                        "employee_name": row.employee_name,
+                    })
+                    continue
+                if allocated_amount is None or allocated_amount == 0:
+                    continue
+                allocated_rows.append((row, allocated_amount))
+        else:
+            allocated_rows = [(row, row.amount) for row in included_rows]
+        excluded_entries.extend(allocation_excluded_entries)
+        row_warnings.extend(_format_apprentice_allocation_warnings(allocation_excluded_entries))
 
         # Phase 5: Aggregate and emit.
         individual_code_display = (
@@ -688,7 +912,7 @@ def _build_urssaf_code_breakdowns(
             )
             continue
 
-        if not included_rows:
+        if not allocated_rows:
             breakdowns.append(UrssafCodeBreakdown(
                 ctp_code=ctp,
                 ctp_label=label,
@@ -699,6 +923,7 @@ def _build_urssaf_code_breakdowns(
                 applied_individual_codes=sorted(applied_codes),
                 excluded_individual_codes=excluded_entries,
                 declared_amount=declared,
+                amount_source=amount_source,
                 display_absolute=display_absolute,
                 warnings=row_warnings,
             ))
@@ -707,17 +932,21 @@ def _build_urssaf_code_breakdowns(
         # Aggregate by employee_index — one row per employee, with the
         # contributing S81 codes surfaced as metadata.
         by_emp: dict[int, tuple[str, Decimal, list[int], set[str]]] = {}
-        for emp_idx, emp_name, amt, lines, _base, s81_code in included_rows:
+        for row, allocated_amount in allocated_rows:
+            emp_idx = row.employee_index
+            emp_name = row.employee_name
+            lines = row.record_lines
+            s81_code = row.individual_code
             if emp_idx in by_emp:
                 prev_name, prev_amt, prev_lines, prev_codes = by_emp[emp_idx]
                 by_emp[emp_idx] = (
                     prev_name,
-                    prev_amt + amt,
+                    prev_amt + allocated_amount,
                     prev_lines + list(lines),
                     prev_codes | {s81_code},
                 )
             else:
-                by_emp[emp_idx] = (emp_name, amt, list(lines), {s81_code})
+                by_emp[emp_idx] = (emp_name, allocated_amount, list(lines), {s81_code})
 
         individual_total = sum(
             (amt for _, amt, _, _ in by_emp.values()),
@@ -759,6 +988,7 @@ def _build_urssaf_code_breakdowns(
             applied_individual_codes=sorted(applied_codes),
             excluded_individual_codes=excluded_entries,
             declared_amount=declared,
+            amount_source=amount_source,
             individual_amount=individual_total,
             delta=delta,
             delta_within_unit=delta_within_unit,
@@ -865,19 +1095,22 @@ def _compute_urssaf(
             )
 
             recomputed: Decimal | None = None
-            effective_rate = None
-            if not is_at_rate_only:
-                effective_rate = expected_rate if expected_rate is not None else rate
+            amount_source: str | None = "declared" if declared is not None else None
+            effective_rate = expected_rate if expected_rate is not None else rate
             # Net-entreprises documents F/R CTP formats as special
             # reduction/regularization lines whose business amount lives in
             # S21.G00.23.005 rather than being safely recomputable from
             # S21.G00.23.004 × taux.
-            can_recompute_amount = not is_at_rate_only and reference_fmt not in {"F", "R"}
+            can_recompute_amount = reference_fmt not in {"F", "R"}
+            if is_at_rate_only and (ctp_code, assiette_qual or "") not in RECONSTRUCTABLE_AT_ONLY_CTPS:
+                can_recompute_amount = False
             if base is not None and effective_rate is not None and can_recompute_amount:
                 recomputed = (base * effective_rate / Decimal(100)).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP
                 )
                 n_recalculated_ctps += 1
+                if declared is None:
+                    amount_source = "reconstructed"
 
             # Amount to use for this CTP
             if declared is not None:
@@ -935,6 +1168,7 @@ def _compute_urssaf(
                 base_amount=base,
                 declared_amount=declared,
                 computed_amount=recomputed,
+                amount_source=amount_source,
                 delta=ctp_delta,
                 status=ctp_status,
                 rate_mismatch=rate_mismatch,
@@ -996,10 +1230,9 @@ def _compute_urssaf(
 
     # Slice C: per-CTP drill-down to employee-level amounts via Slice B mapping.
     s81_by_code, has_any_s78_s81 = _collect_s81_by_individual_code(employee_blocks)
-    contract_natures_by_emp = _collect_employee_contract_natures(employee_blocks)
     urssaf_code_breakdowns = _build_urssaf_code_breakdowns(
         details, s81_by_code, qualifiers_by_ctp, insee_codes_by_ctp,
-        ctps_with_empty_qualifier, contract_natures_by_emp,
+        ctps_with_empty_qualifier, reference_date,
     )
 
     # Warn when individual data is present in the file but some CTPs cannot

@@ -7,7 +7,7 @@ failing DSN ``DSN_DSN-mensuelle_YZZY_16_employees_2026-03 (4).dsn`` on
 2026-04-14. Per-CTP observations from that run:
 
     027D: decl=7.05  ind=7.07        delta=-0.02       within_unit=True
-    100D: decl=None  ind=1510.13     delta=None        rattachable (AT rate only)
+    100D: decl=reconstruit ind=1510.13 delta=...       rattachable
     100P: decl=6297.27 ind=6255.56   delta=41.71       rattachable
     726D: decl=None  ind=36.82       delta=None        rattachable
     726P: decl=77.98 ind=119.38      delta=-41.40      rattachable
@@ -28,7 +28,7 @@ The seven behaviors asserted in a single test body:
 2. CTP 100 produces both 100D and 100P mapped_code rows.
 3. 100P individual_amount equals the sum of per-employee amounts
    (person-side, not aggregate).
-4. 100D is rattachable even without .005 (AT rate only) — individual>0.
+4. 100D is rattachable even without .005 and carries a reconstructed amount.
 5. One row per employee under 100P; individual_codes lists contributing codes.
 6. 668 rattachable with display_absolute=True and matching S81 018,
    regardless of declared sign (relaxed gate for reduction rules).
@@ -39,9 +39,10 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
+from pathlib import Path
 
 from dsn_extractor.contributions import compute_contribution_comparisons
-from dsn_extractor.parser import DSNRecord, EmployeeBlock, EstablishmentBlock
+from dsn_extractor.parser import DSNRecord, EmployeeBlock, EstablishmentBlock, parse_lines, segment
 
 
 REFERENCE_DATE = dt.date(2025, 1, 1)
@@ -205,11 +206,12 @@ def test_urssaf_seven_issues_regression():
     )
     assert b100P.individual_amount == Decimal("6297.27")
 
-    # ---- Behavior 4: 100D rattachable without .005 (AT rate only) -------
+    # ---- Behavior 4: 100D rattachable with reconstructed declared side ---
     assert b100D.mapping_status == "rattachable"
-    assert b100D.declared_amount is None
+    assert b100D.declared_amount == Decimal("1317.00")
+    assert b100D.amount_source == "reconstructed"
     assert b100D.individual_amount == Decimal("1468.42")
-    assert b100D.delta is None
+    assert b100D.delta == Decimal("-151.42")
 
     # ---- Behavior 5: one row per employee under 100P --------------------
     emp_ids_100P = [e.employee_name for e in b100P.employees]
@@ -252,3 +254,26 @@ def test_urssaf_seven_issues_regression():
     assert b003.delta == Decimal("648.85")  # signed, audit
     # abs delta is |325| - |-323.85| = 1.15 → above 1€, not within_unit
     assert b003.delta_within_unit is False
+
+
+def test_thomas_like_shareable_fixture_end_to_end_100p_726p_ok():
+    """Closest legally shareable Thomas regression fixture: parses from DSN
+    text and asserts final 100P / 726P behavior end-to-end."""
+    fixture = Path(__file__).parent / "fixtures" / "thomas_like_100_726_ok_minimized.dsn"
+    records, skipped = parse_lines(fixture.read_text(encoding="utf-8"))
+    assert skipped == []
+    parsed = segment(records, skipped)
+    assert len(parsed.establishments) == 1
+
+    urssaf = _get_urssaf(parsed.establishments[0])
+    rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
+
+    assert urssaf.status == "ok"
+    assert rows["100P"].mapping_status == "rattachable"
+    assert rows["726P"].mapping_status == "rattachable"
+    assert rows["100P"].individual_amount == Decimal("6425.37")
+    assert rows["726P"].individual_amount == Decimal("77.03")
+    assert rows["100P"].delta == Decimal("0.00")
+    assert rows["726P"].delta == Decimal("0.00")
+    assert rows["100P"].delta_within_unit is True
+    assert rows["726P"].delta_within_unit is True

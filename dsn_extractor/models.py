@@ -169,6 +169,7 @@ class ContributionComparisonDetail(BaseModel):
     base_amount: Decimal | None = None
     declared_amount: Decimal | None = None
     computed_amount: Decimal | None = None
+    amount_source: str | None = None  # declared | reconstructed | mixed
     delta: Decimal | None = None
     status: str = "ok"
     rate_mismatch: bool = False
@@ -220,6 +221,7 @@ class UrssafCodeBreakdown(BaseModel):
     applied_individual_codes: list[str] = Field(default_factory=list)
     excluded_individual_codes: list[dict] = Field(default_factory=list)
     declared_amount: Decimal | None = None  # Sum of CTP amounts across assiette variants
+    amount_source: str | None = None  # declared | reconstructed | mixed
     individual_amount: Decimal | None = None  # Sum of S81.004 across employees
     delta: Decimal | None = None  # declared_amount - individual_amount (signed, for audit)
     delta_within_unit: bool = False  # True when abs(delta) < 1.00€ (URSSAF row policy)

@@ -273,11 +273,11 @@ class TestNewValidatedRules:
         assert rule.components is not None
         assert len(rule.components) == 2
 
-    # ---- CTP 100 → excludes apprentice and mandataire -------------------------
+    # ---- CTP 100 → excludes mandataire only -----------------------------------
 
-    def test_ctp_100_excludes_apprentice_and_mandataire(self):
+    def test_ctp_100_excludes_mandataire_only(self):
         rule = get_rule("100")
-        assert rule.conditions.excludes_contract_nature == frozenset({"02", "80"})
+        assert rule.conditions.excludes_contract_nature == frozenset({"80"})
 
     # ---- CTP 635 → 907 (03) -----------------------------------------------
 

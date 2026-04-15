@@ -1606,12 +1606,24 @@
       ? ' &mdash; codes S81 appliqu\u00e9s\u00a0: ' + breakdown.applied_individual_codes.map(escapeHtml).join(', ')
       : '';
 
-    // Rattachable rows with no declared amount (typically AT-rate-only D
-    // variants like 100D / 726D / 863D) are not broken — the URSSAF side just
-    // doesn't expose a safely computable aggregate. Flag this explicitly so
-    // the user doesn't read the absence as a bug.
+    // Rattachable rows with no declared amount are not broken — the URSSAF
+    // side just doesn't expose a safely computable aggregate. When the backend
+    // does reconstruct an amount (targeted D rows), surface that clearly so
+    // the user understands this value comes from the official rule, not a
+    // literal DSN .005 amount.
     var declaredNote = '';
-    if (breakdown.declared_amount == null) {
+    if ((breakdown.amount_source === 'reconstructed' || breakdown.amount_source === 'mixed') && breakdown.declared_amount != null) {
+      var noteTitle = breakdown.amount_source === 'mixed'
+        ? '<strong>Montant URSSAF partiellement reconstitué.</strong> '
+        : '<strong>Montant URSSAF reconstitué.</strong> ';
+      var noteBody = breakdown.amount_source === 'mixed'
+        ? 'Cette ligne additionne une partie lue telle quelle dans la DSN et une partie recalculée à partir de l’assiette et du taux de référence hors AT.'
+        : 'Cette variante ne porte pas de montant payable direct en .005 dans la DSN. Le montant affiché a été recalculé à partir de l’assiette et du taux de référence hors AT.';
+      declaredNote = '<div class="urssaf-info-note">'
+        + noteTitle
+        + noteBody
+        + '</div>';
+    } else if (breakdown.declared_amount == null) {
       declaredNote = '<div class="urssaf-info-note">'
         + '<strong>Montant d\u00e9clar\u00e9 URSSAF non disponible pour cette variante.</strong> '
         + 'Ce code expose ici uniquement le contexte d\u00e9claratif (assiette et taux), '
@@ -1785,6 +1797,11 @@
           + ' Le d\u00e9tail salari\u00e9 reste consultable.">\u2014</span>';
       } else if (b != null) {
         declaredCell = escapeHtml(formatAmount(_displayedAmount(b, b.declared_amount)));
+        if (b.amount_source === 'reconstructed') {
+          declaredCell += ' <span class="badge-recalc">Reconstitu\u00e9</span>';
+        } else if (b.amount_source === 'mixed') {
+          declaredCell += ' <span class="badge-recalc" title="Montant mixte : une partie est d\u00e9clar\u00e9e telle quelle, une autre est reconstitu\u00e9e.">Mixte</span>';
+        }
       } else {
         declaredCell = escapeHtml(formatAmount(null));
       }
