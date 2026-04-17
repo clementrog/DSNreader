@@ -1106,6 +1106,10 @@ body[data-state="error"] #error-screen {
   overflow: hidden;
 }
 
+.contrib-item--expanded {
+  overflow: visible;
+}
+
 /* ── Collapsible summary row ─────────────────────────────── */
 
 .contrib-summary {
@@ -1127,6 +1131,14 @@ body[data-state="error"] #error-screen {
   align-items: center;
   gap: var(--sp-3);
   min-width: 0;
+}
+
+.contrib-summary__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .contrib-summary__chevron {
@@ -1155,22 +1167,6 @@ body[data-state="error"] #error-screen {
 
 .contrib-metric-sep {
   color: var(--color-text-secondary);
-}
-
-.contrib-summary__warning-count {
-  font-size: var(--fs-xs);
-  color: var(--color-warning);
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-/* Shown on the card header in place of the loud "OK" pill when the aggregate
- * reconciles but row-level warnings remain — restores the hierarchy
- * (aggregate-ok / details-to-check) without the contradictory pill. */
-.contrib-summary__ok-with-warnings {
-  font-size: var(--fs-xs);
-  color: var(--color-text-secondary);
-  white-space: nowrap;
 }
 
 /* ── Collapsible detail body ─────────────────────────────── */
@@ -1205,12 +1201,13 @@ body[data-state="error"] #error-screen {
   font-family: var(--font-heading);
   font-size: var(--fs-xl);
   font-weight: 600;
+  line-height: 1.1;
 }
 
 .contrib-item__meta {
-  margin-top: var(--sp-1);
   color: var(--color-text-secondary);
   font-size: var(--fs-sm);
+  white-space: nowrap;
 }
 
 .contrib-item__header-right {
@@ -1296,37 +1293,6 @@ body[data-state="error"] #error-screen {
 
 .status-subtle--muted {
   color: var(--color-text-secondary);
-}
-
-.contrib-warning {
-  margin-top: var(--sp-4);
-  padding: var(--sp-3) var(--sp-4);
-  background: color-mix(in srgb, var(--color-surface-hover) 85%, white);
-  border: 1px solid color-mix(in srgb, var(--color-border) 92%, transparent);
-  border-left: 3px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
-  border-radius: var(--radius);
-  color: var(--color-text-primary);
-}
-
-.contrib-warning__title {
-  display: block;
-  margin-bottom: var(--sp-1);
-  font-weight: 600;
-  color: var(--color-text-primary);
-  font-size: var(--fs-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.contrib-warning__list {
-  margin-left: var(--sp-4);
-  color: var(--color-text-secondary);
-  font-size: var(--fs-body);
-  line-height: 1.55;
-}
-
-.contrib-warning__list li + li {
-  margin-top: var(--sp-1);
 }
 
 .contrib-empty {
@@ -1447,6 +1413,15 @@ body[data-state="error"] #error-screen {
   width: 100%;
 }
 
+.amount-stack--compact {
+  min-height: 20px;
+  gap: 0;
+}
+
+.amount-stack--compact .amount-stack__value {
+  min-height: 20px;
+}
+
 .amount-stack__value {
   display: inline-flex;
   align-items: center;
@@ -1465,11 +1440,6 @@ body[data-state="error"] #error-screen {
   cursor: help;
   opacity: 0.82;
   letter-spacing: 0.01em;
-}
-
-.amount-origin--empty {
-  visibility: hidden;
-  cursor: default;
 }
 
 .cell-sublabel {
@@ -1497,41 +1467,6 @@ body[data-state="error"] #error-screen {
 
 .detail-row--non_calculable {
   opacity: 0.6;
-}
-
-/* ── Inline detail warnings ───────────────────────────────── */
-
-.detail-warning-row td {
-  padding: var(--sp-1) var(--sp-3);
-  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
-}
-
-.inline-warning {
-  display: flex;
-  gap: var(--sp-2);
-  align-items: flex-start;
-  font-size: var(--fs-xs);
-  padding: var(--sp-1) 0;
-}
-
-.inline-warning__icon {
-  color: var(--color-warning);
-  flex-shrink: 0;
-  line-height: 1;
-}
-
-.inline-warning__text {
-  color: var(--color-warning);
-}
-
-.contrib-hidden-warnings {
-  margin-top: var(--sp-3);
-  padding: var(--sp-2) var(--sp-3);
-  font-size: var(--fs-xs);
-  color: var(--color-warning);
-  border: 1px dashed color-mix(in srgb, var(--color-warning) 30%, var(--color-border));
-  border-radius: var(--radius);
-  text-align: center;
 }
 
 /* ── URSSAF CTP drill-down (Slice D) ─────────────────────── */
@@ -1606,14 +1541,6 @@ body[data-state="error"] #error-screen {
   background: color-mix(in srgb, var(--color-error) 10%, transparent);
 }
 
-/* Subtle left accent on rows that carry a row-level warning. The full
- * warning sentence lives inside the expanded state; this stripe is the only
- * collapsed signal — calm enough to disappear on non-warned rows, visible
- * enough to group warned ones visually. */
-.urssaf-ctp-row--has-warnings td:first-of-type {
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--color-warning) 55%, transparent);
-}
-
 .urssaf-ctp-chevron {
   display: inline-block;
   font-size: var(--fs-xs);
@@ -1645,41 +1572,6 @@ body[data-state="error"] #error-screen {
   flex-direction: column;
   gap: var(--sp-3);
   padding: var(--sp-3) 0 var(--sp-4);
-}
-
-/* Compact row-level warning surfaced at the top of the expansion. Replaces
- * the former full-width banner: a single line per warning, muted, with the
- * full text available on hover — same signal, ~1/4 the vertical space. */
-.urssaf-expansion-warnings {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.urssaf-expansion-warning {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-  padding: 4px var(--sp-2);
-  font-size: var(--fs-xs);
-  color: var(--color-text-secondary);
-  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
-  border-left: 2px solid color-mix(in srgb, var(--color-warning) 50%, transparent);
-  border-radius: 3px;
-  cursor: help;
-}
-
-.urssaf-expansion-warning__icon {
-  color: var(--color-warning);
-  font-size: 0.95em;
-  flex-shrink: 0;
-}
-
-.urssaf-expansion-warning__text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
 }
 
 .urssaf-sub-section {
@@ -1730,11 +1622,73 @@ body[data-state="error"] #error-screen {
   white-space: nowrap;
 }
 
-/* Lignes DSN cell: long "L1472, L1473, …" lists; let them truncate with
- * ellipsis so the column never exceeds its allotted width. */
-.urssaf-lines-cell {
+.urssaf-employees-table td,
+.urssaf-employees-table th {
+  overflow: visible;
+}
+
+.urssaf-employees-table th:last-child,
+.urssaf-employees-table td:last-child {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.urssaf-employee-amount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  width: 100%;
+}
+
+.urssaf-inline-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
   color: var(--color-text-tertiary);
-  font-size: var(--fs-sm);
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.urssaf-inline-info::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  min-width: 220px;
+  max-width: 320px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-surface-inset) 94%, black);
+  border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text-primary);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  white-space: normal;
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s ease;
+  z-index: 9999;
+}
+
+.urssaf-inline-info:hover::after,
+.urssaf-inline-info:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.urssaf-inline-info svg {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
 }
 
 /* Remove zebra striping inside expansion sub-tables — the expansion panel
@@ -2192,14 +2146,9 @@ body[data-state="error"] #error-screen {
     gap: var(--sp-2);
   }
 
-  .contrib-summary {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--sp-2);
-  }
-
   .contrib-item__header-right {
     flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .contrib-summary__metrics {

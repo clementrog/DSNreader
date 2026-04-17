@@ -33,7 +33,7 @@ class TestUrssafMappingRules:
     def test_all_rules_load(self):
         rules = all_rules()
         assert isinstance(rules, dict)
-        assert len(rules) == 23
+        assert len(rules) == 24
         for rule in rules.values():
             assert isinstance(rule, UrssafMappingRule)
 
@@ -165,17 +165,18 @@ class TestUrssafIndividualMappingShim:
         assert isinstance(mapping, dict)
         for row in mapping.values():
             assert isinstance(row, UrssafIndividualMapping)
-        # Active 1:1 rules (no components): 003, 004, 027, 236, 332, 423, 635,
-        # 668, 669, 772, 937, 959, 983, 987, 992, 993
+        # Active 1:1 rules (no components): 003, 004, 027, 236, 332, 423, 430,
+        # 635, 668, 669, 772, 937, 959, 983, 987, 992, 993
         # Excluded: 100, 726, 863 (1:N with components), 260 (1:N flat),
         # 900, 901, 971 (expert_pending)
-        assert len(mapping) == 16
+        assert len(mapping) == 17
         assert "100" not in mapping  # 1:N
         assert "726" not in mapping  # 1:N
         assert "863" not in mapping  # 1:N
         assert "260" not in mapping  # 1:N
         assert "900" not in mapping  # expert_pending
         assert "027" in mapping
+        assert "430" in mapping
         assert "959" in mapping
 
     def test_260_not_mappable_1_to_n_flat(self):
@@ -231,6 +232,16 @@ class TestNewValidatedRules:
         assert rule.base_codes_s78 == frozenset({"07"})
         assert rule.conditions.requires_contract_nature == frozenset({"02"})
 
+    # ---- CTP 430 → 102 (03) except mandataire -----------------------------
+
+    def test_ctp_430_maps_to_102_base_03_and_excludes_mandataire(self):
+        rule = get_rule("430")
+        assert rule is not None
+        assert rule.product_status == "enabled"
+        assert rule.individual_codes_s81 == ("102",)
+        assert rule.base_codes_s78 == frozenset({"03"})
+        assert rule.conditions.excludes_contract_nature == frozenset({"80"})
+
     # ---- CTP 772 → 040 (07) if NOT apprentice ------------------------------
 
     def test_ctp_772_non_apprentice_only(self):
@@ -272,6 +283,10 @@ class TestNewValidatedRules:
         assert rule.conditions.requires_contract_nature == frozenset({"80"})
         assert rule.components is not None
         assert len(rule.components) == 2
+        comp_d = rule.components[0]
+        assert comp_d.assiette_qualifiers_s23 == frozenset({"920"})
+        assert comp_d.base_codes_s78 == frozenset({"03"})
+        assert comp_d.individual_codes_s81 == ("045", "068", "074", "075", "076", "102", "907")
 
     # ---- CTP 100 → excludes mandataire only -----------------------------------
 
@@ -287,6 +302,7 @@ class TestNewValidatedRules:
         assert rule.product_status == "enabled"
         assert rule.individual_codes_s81 == ("907",)
         assert rule.base_codes_s78 == frozenset({"03"})
+        assert rule.conditions.excludes_contract_nature == frozenset({"80"})
 
     # ---- CTP 937 → 048 (07) -----------------------------------------------
 

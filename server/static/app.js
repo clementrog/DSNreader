@@ -284,12 +284,15 @@
   }
 
   function _renderAmountStack(mainHtml, metaLabel, metaTitle) {
+    if (!metaLabel) {
+      return '<span class="amount-stack amount-stack--compact">'
+        + '<span class="amount-stack__value">' + mainHtml + '</span>'
+        + '</span>';
+    }
     var metaAttrs = metaTitle
       ? ' title="' + escapeHtml(metaTitle) + '"'
       : '';
-    var metaHtml = metaLabel
-      ? '<span class="amount-origin"' + metaAttrs + '>' + escapeHtml(metaLabel) + '</span>'
-      : '<span class="amount-origin amount-origin--empty" aria-hidden="true">&nbsp;</span>';
+    var metaHtml = '<span class="amount-origin"' + metaAttrs + '>' + escapeHtml(metaLabel) + '</span>';
     return '<span class="amount-stack">'
       + '<span class="amount-stack__value">' + mainHtml + '</span>'
       + metaHtml
@@ -363,46 +366,6 @@
 
   function getStatusBadgeClass(status) {
     return "status-badge status-badge--" + (status || "non_calculable");
-  }
-
-  function collectComparisonWarnings(item) {
-    var warnings = [];
-    if (item && Array.isArray(item.warnings)) {
-      warnings = warnings.concat(item.warnings);
-    }
-    if (item && Array.isArray(item.details)) {
-      item.details.forEach(function (detail) {
-        if (detail && Array.isArray(detail.warnings) && detail.warnings.length > 0) {
-          warnings = warnings.concat(detail.warnings);
-        }
-      });
-    }
-    // Slice D: surface warnings attached to URSSAF per-CTP breakdowns
-    // (e.g. partial multi-assiette collapse) so they reach item-level
-    // badges, tab-level worst-status, and the trust banner.
-    if (item && Array.isArray(item.urssaf_code_breakdowns)) {
-      item.urssaf_code_breakdowns.forEach(function (breakdown) {
-        if (breakdown && Array.isArray(breakdown.warnings) && breakdown.warnings.length > 0) {
-          warnings = warnings.concat(breakdown.warnings);
-        }
-      });
-    }
-    return warnings;
-  }
-
-  function countComparisonWarnings(items) {
-    var seen = {};
-    var count = 0;
-    (items || []).forEach(function (item) {
-      collectComparisonWarnings(item).forEach(function (warning) {
-        var key = String(warning);
-        if (!seen[key]) {
-          seen[key] = true;
-          count += 1;
-        }
-      });
-    });
-    return count;
   }
 
   function validateEmail(email) {
@@ -995,34 +958,22 @@
       ? payload.mismatch_count
       : items.filter(function (item) { return item.status === "ecart"; }).length;
 
-    // Slice D: compute the warning count client-side over the full set of
-    // warning sources (item + detail + urssaf_code_breakdowns). The backend
-    // payload.warning_count is kept as a lower-bound fallback so stale
-    // servers still produce a sensible number, but the client-side count
-    // takes precedence whenever it sees more warnings — which is always the
-    // case now that breakdown.warnings exists.
-    var clientWarningCount = countComparisonWarnings(items);
-    var warningCount = Math.max(payload.warning_count || 0, clientWarningCount);
-
-    renderTrustBanner(okCount, mismatchCount, warningCount);
+    renderTrustBanner(okCount, mismatchCount);
     renderContributionTabBar(items);
     renderContributionTabPanels(items);
   }
 
-  function renderTrustBanner(okCount, mismatchCount, warningCount) {
+  function renderTrustBanner(okCount, mismatchCount) {
     var trustLevel, verdict;
     if (mismatchCount > 0) {
       trustLevel = "alert";
       verdict = "\u00c9carts d\u00e9tect\u00e9s";
-    } else if (warningCount > 0) {
-      trustLevel = "review";
-      verdict = "Points de vigilance";
     } else {
       trustLevel = "trusted";
       verdict = "DSN conforme";
     }
 
-    var iconMap = { trusted: "&#10003;", review: "&#9888;", alert: "&#10007;" };
+    var iconMap = { trusted: "&#10003;", alert: "&#10007;" };
 
     $ccTrustBanner.innerHTML = '<div class="trust-banner trust-banner--' + trustLevel + '">'
       + '<div class="trust-banner__verdict">'
@@ -1033,8 +984,6 @@
       + '<span class="trust-count trust-count--ok">' + okCount + ' OK</span>'
       + '<span class="trust-banner__sep">\u00b7</span>'
       + '<span class="trust-count trust-count--ecart">' + mismatchCount + ' \u00e9cart(s)</span>'
-      + '<span class="trust-banner__sep">\u00b7</span>'
-      + '<span class="trust-count trust-count--warning">' + warningCount + ' avert.</span>'
       + '</div>'
       + '</div>';
   }
@@ -1054,7 +1003,7 @@
 
     var meta = {};
     CONTRIBUTION_TABS.forEach(function (t) {
-      meta[t] = { count: 0, ecartCount: 0, warningCount: 0, worstStatus: "empty" };
+      meta[t] = { count: 0, ecartCount: 0, worstStatus: "empty" };
     });
     (items || []).forEach(function (item) {
       var family = item && item.family ? item.family : "";
@@ -1062,14 +1011,11 @@
       if (!tab || !meta[tab]) return;
       meta[tab].count++;
       if (item.status === "ecart") meta[tab].ecartCount++;
-      var w = collectComparisonWarnings(item);
-      if (w.length > 0) meta[tab].warningCount++;
     });
     CONTRIBUTION_TABS.forEach(function (t) {
       var m = meta[t];
       if (m.count === 0) m.worstStatus = "empty";
       else if (m.ecartCount > 0) m.worstStatus = "ecart";
-      else if (m.warningCount > 0) m.worstStatus = "warning";
       else m.worstStatus = "ok";
     });
     return meta;
@@ -1148,7 +1094,7 @@
         + '</div>';
     }
 
-    var allOk = items.every(function (item) { return item.status === "ok" && collectComparisonWarnings(item).length === 0; });
+    var allOk = items.every(function (item) { return item.status === "ok"; });
     var hint = allOk
       ? '<div class="contrib-all-ok-hint">Tous les organismes sont conformes. Cliquez pour voir le d\u00e9tail.</div>'
       : '';
@@ -1235,29 +1181,6 @@
       }
     }
 
-    // Total warning count (item + detail level) for summary badge
-    var allWarnings = collectComparisonWarnings(item);
-    var warningCountHtml = allWarnings.length > 0
-      ? '<span class="contrib-summary__warning-count">' + allWarnings.length + ' avert.</span>'
-      : '';
-
-    // When the aggregate status is OK but row-level warnings exist, we suppress
-    // the loud "OK" pill in the header (it reads as a contradiction next to the
-    // warning count) and replace it with a muted sub-line that restores the
-    // hierarchy: aggregate reconciled, details worth checking.
-    var showOkBadge = true;
-    var okWithWarningsHtml = '';
-    if (item.status === 'ok' && allWarnings.length > 0) {
-      showOkBadge = false;
-      okWithWarningsHtml = '<span class="contrib-summary__ok-with-warnings">'
-        + 'Rapprochement OK \u00b7 '
-        + allWarnings.length + ' point(s) de vigilance'
-        + '</span>';
-    }
-
-    // Item-level warnings only for the warning box (detail warnings go inline in table)
-    var itemWarnings = Array.isArray(item.warnings) ? item.warnings : [];
-
     return '<article class="contrib-item' + (expanded ? ' contrib-item--expanded' : '') + '"'
       + ' data-item-id="' + escapeHtml(itemKey) + '"'
       + ' data-status="' + (item.status || 'non_calculable') + '"'
@@ -1265,27 +1188,22 @@
       + '<div class="contrib-summary" data-action="toggle-detail"' + titleAttr + '>'
       + '<div class="contrib-summary__left">'
       + '<span class="contrib-summary__chevron">&#9654;</span>'
-      + '<div>'
-      + '<div class="contrib-item__title">' + escapeHtml(title) + '</div>'
+      + '<div class="contrib-summary__identity">'
+      + '<span class="contrib-item__title">' + escapeHtml(title) + '</span>'
       + (meta.length > 0
-        ? '<div class="contrib-item__meta">' + escapeHtml(meta.join(' \u00b7 ')) + '</div>'
+        ? '<span class="contrib-item__meta">' + escapeHtml(meta.join(' \u00b7 ')) + '</span>'
         : '')
       + '</div>'
       + '</div>'
       + '<div class="contrib-item__header-right">'
       + '<div class="contrib-summary__metrics">' + renderContributionSummaryMetrics(item) + '</div>'
-      + warningCountHtml
-      + okWithWarningsHtml
       + deltaHtml
-      + (showOkBadge
-          ? '<span class="' + getStatusBadgeClass(item.status) + '">'
-            + escapeHtml(formatStatusLabel(item.status))
-            + '</span>'
-          : '')
+      + '<span class="' + getStatusBadgeClass(item.status) + '">'
+      + escapeHtml(formatStatusLabel(item.status))
+      + '</span>'
       + '</div>'
       + '</div>'
       + '<div class="contrib-detail-body' + (expanded ? '' : ' contrib-detail-body--collapsed') + '">'
-      + (itemWarnings.length > 0 ? renderContributionWarnings(itemWarnings) : '')
       + renderContributionMetrics(item)
       + renderContributionDetailsTable(item)
       + '</div>'
@@ -1312,17 +1230,6 @@
           + '<span class="kv-row__value">' + escapeHtml(row.value) + '</span>'
           + '</div>';
       }).join("") + '</div>';
-  }
-
-  function renderContributionWarnings(warnings) {
-    return '<div class="contrib-warning">'
-      + '<span class="contrib-warning__title">Vigilance</span>'
-      + '<ul class="contrib-warning__list">'
-      + warnings.map(function (warning) {
-        return '<li>' + escapeHtml(String(warning)) + '</li>';
-      }).join("")
-      + '</ul>'
-      + '</div>';
   }
 
   // ── URSSAF details rendering (Slice D) ──────────────────────
@@ -1380,10 +1287,8 @@
   function _ctpHasIssue(breakdown, assietteDetails) {
     // Returns true when a CTP row needs to be surfaced under the default
     // "Afficher uniquement les écarts" filter — i.e. whenever the row carries
-    // ANY kind of issue the payroll user needs to see. Broader than a strict
-    // declared-vs-individual écart so that explanation-carrying rows
-    // (non_rattache / manquant_individuel / partial-collapse warnings) are
-    // never silently hidden by the default filter.
+    // a declared-vs-individual mismatch above tolerance or a mapping state the
+    // user must fix.
     //
     // Criteria (any one is sufficient):
     //   1. Declared-side écart: any assiette row with rate_mismatch or
@@ -1393,12 +1298,6 @@
     //   3. Mapping status is anything other than "rattachable" — so
     //      non_rattache and manquant_individuel rows are always visible and
     //      the UI can explicitly explain why the drill-down is unavailable.
-    //   4. Breakdown is explicitly marked informational_partial by the
-    //      backend — this is a machine-readable presentation contract, so
-    //      the row must stay visible even if warning copy changes later.
-    //   5. Breakdown carries at least one warning (e.g. the Slice C partial
-    //      multi-assiette collapse warning) — the user must see the row to
-    //      read the warning.
     for (var i = 0; i < assietteDetails.length; i++) {
       var d = assietteDetails[i];
       if (d.rate_mismatch || d.amount_mismatch) return true;
@@ -1408,12 +1307,6 @@
       if (!isNaN(dv) && dv !== 0 && !breakdown.delta_within_unit) return true;
     }
     if (breakdown && breakdown.mapping_status && breakdown.mapping_status !== "rattachable") {
-      return true;
-    }
-    if (_isInformationalPartialComparison(breakdown)) {
-      return true;
-    }
-    if (breakdown && Array.isArray(breakdown.warnings) && breakdown.warnings.length > 0) {
       return true;
     }
     return false;
@@ -1500,18 +1393,6 @@
         + '<td class="col-num">' + deltaHtml + '</td>'
         + '</tr>';
 
-      if (detail.warnings && detail.warnings.length > 0) {
-        rowHtml += '<tr class="detail-warning-row">'
-          + '<td colspan="4">'
-          + detail.warnings.map(function (w) {
-              return '<div class="inline-warning">'
-                + '<span class="inline-warning__icon">&#9888;</span>'
-                + '<span class="inline-warning__text">' + escapeHtml(String(w)) + '</span>'
-                + '</div>';
-            }).join("")
-          + '</td></tr>';
-      }
-
       return rowHtml;
     }).join("");
 
@@ -1548,7 +1429,7 @@
           + 'Ce CTP est reconnu mais aucun qualifiant d\u2019assiette exploitable '
           + 'n\u2019a \u00e9t\u00e9 trouv\u00e9 dans cette DSN.';
       } else {
-        // no_verified_mapping_rule — e.g. CTP 430D.
+        // no_verified_mapping_rule for codes that still stay default-deny.
         reasonText = '<strong>Rattachement salari\u00e9 non encore confirm\u00e9 pour ce code.</strong> '
           + 'Le montant \u00e9tablissement est bien lu. La ventilation par salari\u00e9 '
           + 'sera affich\u00e9e une fois la correspondance valid\u00e9e.';
@@ -1588,30 +1469,37 @@
 
     var rowsHtml = employees.map(function (emp) {
       var lines = Array.isArray(emp.record_lines) ? emp.record_lines : [];
-      var linesLabel = lines.length === 0
-        ? NOT_AVAILABLE
-        : lines.slice(0, 5).map(function (l) { return 'L' + l; }).join(', ')
-          + (lines.length > 5 ? ' \u2026' : '');
-      var linesTitle = lines.length > 0
-        ? ' title="Lignes DSN\u00a0: ' + escapeHtml(lines.map(function (l) { return 'L' + l; }).join(', ')) + '"'
-        : '';
       // Employees now carry the full set of contributing S81 codes; join them
       // so the drill-down shows every code that rolled into this employee's
-      // total (previously we displayed a single code and duplicated the row
-      // per code).
+      // total. Surface them in the info tooltip instead of keeping dedicated
+      // inline columns.
       var codesList = Array.isArray(emp.individual_codes) && emp.individual_codes.length > 0
         ? emp.individual_codes
         : (emp.individual_code ? [emp.individual_code] : []);
       var codesLabel = codesList.length > 0 ? codesList.join(', ') : NOT_AVAILABLE;
-      var codesTitle = codesList.length > 1
-        ? ' title="Codes S81 contribuant au total de ce salari\u00e9\u00a0: ' + escapeHtml(codesLabel) + '"'
-        : '';
+      var linesLabel = lines.length === 0
+        ? NOT_AVAILABLE
+        : lines.map(function (l) { return 'L' + l; }).join(', ');
+      var infoTitle = 'Codes S81\u00a0: ' + codesLabel + ' \u00b7 Lignes DSN\u00a0: ' + linesLabel;
+      var infoHtml = '<span class="urssaf-inline-info"'
+        + ' title="' + escapeHtml(infoTitle) + '"'
+        + ' data-tooltip="' + escapeHtml(infoTitle) + '"'
+        + ' aria-label="' + escapeHtml(infoTitle) + '">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+        + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        + '<circle cx="12" cy="12" r="10"></circle>'
+        + '<path d="M12 16v-4"></path>'
+        + '<path d="M12 8h.01"></path>'
+        + '</svg>'
+        + '</span>';
       return '<tr>'
         + '<td></td>'
-        + '<td>' + escapeHtml(emp.employee_name || NOT_AVAILABLE) + '</td>'
-        + '<td'  + codesTitle + '>' + escapeHtml(codesLabel) + '</td>'
-        + '<td class="col-num">' + escapeHtml(formatAmount(_displayedAmount(breakdown, emp.amount))) + '</td>'
-        + '<td class="urssaf-lines-cell"' + linesTitle + '>' + linesLabel + '</td>'
+        + '<td colspan="3">' + escapeHtml(emp.employee_name || NOT_AVAILABLE) + '</td>'
+        + '<td class="col-num"><span class="urssaf-employee-amount">'
+        + infoHtml
+        + '<span>' + escapeHtml(formatAmount(_displayedAmount(breakdown, emp.amount))) + '</span>'
+        + '</span></td>'
+        + '<td></td>'
         + '</tr>';
     }).join("");
 
@@ -1619,24 +1507,8 @@
       ? ' &mdash; codes S81 appliqu\u00e9s\u00a0: ' + breakdown.applied_individual_codes.map(escapeHtml).join(', ')
       : '';
 
-    // Rattachable rows with no declared amount are not broken — the URSSAF
-    // side just doesn't expose a safely computable aggregate. When the backend
-    // does reconstruct an amount (targeted D rows), surface that clearly so
-    // the user understands this value comes from the official rule, not a
-    // literal DSN .005 amount.
     var declaredNote = '';
-    if ((breakdown.amount_source === 'reconstructed' || breakdown.amount_source === 'mixed') && breakdown.declared_amount != null) {
-      var noteTitle = breakdown.amount_source === 'mixed'
-        ? '<strong>Montant URSSAF partiellement reconstitué.</strong> '
-        : '<strong>Montant URSSAF reconstitué pour la comparaison.</strong> ';
-      var noteBody = breakdown.amount_source === 'mixed'
-        ? 'Cette ligne combine une partie lue telle quelle dans la DSN et une partie reconstruite à partir de l’assiette et du taux de référence hors AT, pour restituer le montant de comparaison de cette variante.'
-        : 'Pour cette variante, la DSN ne fournit pas de montant payable direct en .005. Le montant affiché est donc reconstruit à partir de l’assiette et du taux de référence hors AT, afin d’alimenter la comparaison.';
-      declaredNote = '<div class="urssaf-info-note">'
-        + noteTitle
-        + noteBody
-        + '</div>';
-    } else if (breakdown.declared_amount == null) {
+    if (breakdown.declared_amount == null) {
       declaredNote = '<div class="urssaf-info-note">'
         + '<strong>Montant d\u00e9clar\u00e9 URSSAF non disponible pour cette variante.</strong> '
         + 'Ce code expose ici uniquement le contexte d\u00e9claratif (assiette et taux), '
@@ -1645,25 +1517,18 @@
         + '\u00e9t\u00e9 reconstitu\u00e9 pour \u00e9viter toute valeur fantaisiste.'
         + '</div>';
     }
-    if (_isInformationalPartialComparison(breakdown)) {
-      declaredNote += '<div class="urssaf-info-note">'
-        + '<strong>Comparaison informative uniquement.</strong> '
-        + 'Le montant URSSAF affiché couvre ici le panier complet, alors que '
-        + 'le total salarié ne couvre que les composantes calculables dans la DSN. '
-        + 'Le delta CTP est donc volontairement masqué.'
-        + '</div>';
-    }
 
     // Column widths mirror the parent CTP table's colgroup so the sub-table
     // reads as a vertical extension of the main grid:
-    //   Salarié           ← parent's code (72) + libellé (flex)
-    //   Code S81          ← parent's Déclaré   (132)
-    //   Montant           ← parent's Individuel (132)
-    //   Lignes DSN        ← parent's Delta (96) + Rattachement (210) = 306
+    //   hidden code       ← parent's code (56)
+    //   Salarié           ← parent's libellé (flex) + Déclaré (132)
+    //   Individuel        ← parent's Individuel (132)
+    //   spacer            ← parent's Delta (96) + Rattachement (210) = 306
     // The leading 32px col absorbs the parent's chevron column so the first
     // visible column (Salarié) lines up with the parent Code column.
     var employeesColgroup = '<colgroup>'
       + '<col style="width: 32px;">'
+      + '<col style="width: 56px;">'
       + '<col>'
       + '<col style="width: 132px;">'
       + '<col style="width: 132px;">'
@@ -1676,9 +1541,9 @@
       + employeesColgroup
       + '<thead><tr>'
       + '<th></th>'
-      + '<th>Salari\u00e9</th><th>Code S81</th>'
-      + '<th class="col-num">Montant</th>'
-      + '<th>Lignes DSN</th>'
+      + '<th colspan="3">Salari\u00e9</th>'
+      + '<th class="col-num">Individuel</th>'
+      + '<th></th>'
       + '</tr></thead>'
       + '<tbody>' + rowsHtml + '</tbody>'
       + '</table>'
@@ -1689,9 +1554,9 @@
     var status = breakdown.mapping_status || 'non_rattache';
     if (status === 'rattachable') {
       if (_isInformationalPartialComparison(breakdown)) {
-        return '<span class="status-badge status-badge--informatif"'
+        return '<span class="status-badge status-badge--ok"'
           + ' title="Comparaison partielle : montant URSSAF complet vs total salarié partiel">'
-          + 'Rattaché · Partiel'
+          + 'OK'
           + '</span>';
       }
       var hasDelta = false;
@@ -1702,7 +1567,7 @@
       if (hasDelta) {
         return '<span class="status-badge status-badge--ecart">\u00c9cart rattachement</span>';
       }
-      return '<span class="status-badge status-badge--ok">Rattach\u00e9</span>';
+      return '<span class="status-badge status-badge--ok">OK</span>';
     }
     if (status === 'manquant_individuel') {
       return '<span class="status-badge status-badge--manquant_individuel">Manquant individuel</span>';
@@ -1828,16 +1693,7 @@
         );
       } else if (b != null) {
         var declaredMain = escapeHtml(formatAmount(_displayedAmount(b, b.declared_amount)));
-        var declaredMetaLabel = '';
-        var declaredMetaTitle = '';
-        if (b.amount_source === 'reconstructed') {
-          declaredMetaLabel = 'Reconstitué';
-          declaredMetaTitle = 'Montant reconstruit à partir de l’assiette et du taux de référence';
-        } else if (b.amount_source === 'mixed') {
-          declaredMetaLabel = 'Mixte';
-          declaredMetaTitle = 'Montant mixte : une partie est déclarée telle quelle, une autre est reconstituée.';
-        }
-        declaredCell = _renderAmountStack(declaredMain, declaredMetaLabel, declaredMetaTitle);
+        declaredCell = _renderAmountStack(declaredMain, '', '');
       } else {
         declaredCell = _renderAmountStack(escapeHtml(formatAmount(null)), '', '');
       }
@@ -1849,9 +1705,9 @@
           )
         : _renderAmountStack(escapeHtml(formatAmount(null)), '', '');
       var deltaCell = _isInformationalPartialComparison(b)
-        ? '<span class="cell-info-state"'
+        ? '<span class="cell-na"'
           + ' title="Delta non affiché : montant URSSAF complet vs total salarié partiel">'
-          + 'Partiel'
+          + '\u2014'
           + '</span>'
         : '<span class="cell-na" title="Non calculable">\u2014</span>';
       if (b != null) {
@@ -1870,19 +1726,9 @@
         ? _renderUrssafCtpRattachementBadge(b)
         : '<span class="status-badge status-badge--non_rattache">Non rattach\u00e9</span>';
 
-      // Row-level warnings move to the expanded state. The collapsed row
-      // carries only a subtle left-accent stripe (via --has-warnings) so the
-      // user can see at a glance which rows hold a note — without the full
-      // sentence adding noise. Informational-partial rows reuse the same
-      // accent, but the trigger comes from comparison_mode rather than from
-      // parsing warning text.
-      var breakdownWarnings = (b && Array.isArray(b.warnings)) ? b.warnings : [];
-      var hasWarnings = breakdownWarnings.length > 0 || _isInformationalPartialComparison(b);
-
       var rowCls = 'urssaf-ctp-row'
         + (expanded ? ' urssaf-ctp-row--expanded' : '')
-        + (hasIssue ? ' urssaf-ctp-row--ecart' : '')
-        + (hasWarnings ? ' urssaf-ctp-row--has-warnings' : '');
+        + (hasIssue ? ' urssaf-ctp-row--ecart' : '');
 
       // data-ctp-code carries the mapped_code (row-identity key), not the
       // raw CTP — the click handler uses it verbatim to build the expansion
@@ -1897,21 +1743,6 @@
         + '<td class="urssaf-ctp-rattachement">' + rattachementBadge + '</td>'
         + '</tr>';
 
-      var expansionWarningsHtml = '';
-      if (hasWarnings) {
-        // One compact line per warning: icon + truncated text with full text
-        // on hover. Keeps the signal without the banner-sized footprint.
-        expansionWarningsHtml = '<div class="urssaf-expansion-warnings">'
-          + breakdownWarnings.map(function (w) {
-              var full = String(w);
-              return '<div class="urssaf-expansion-warning" title="' + escapeHtml(full) + '">'
-                + '<span class="urssaf-expansion-warning__icon" aria-hidden="true">&#9888;</span>'
-                + '<span class="urssaf-expansion-warning__text">' + escapeHtml(full) + '</span>'
-                + '</div>';
-            }).join("")
-          + '</div>';
-      }
-
       // Expansion content is always rendered; visibility is controlled via
       // the ``hidden`` attribute so the click handler can toggle it via
       // direct DOM manipulation without a full re-render.
@@ -1923,7 +1754,6 @@
       var expansionContent = '<tr class="urssaf-ctp-expansion"' + (expanded ? '' : ' hidden') + '>'
         + '<td colspan="7">'
         + '<div class="urssaf-ctp-expansion__content">'
-        + expansionWarningsHtml
         + (b != null ? _renderUrssafEmployeesSubSection(b) : '')
         + '</div>'
         + '</td>'
@@ -1931,27 +1761,6 @@
 
       return parentRow + expansionContent;
     }).join("");
-
-    // Count warnings on filtered-out rows so the user knows they exist.
-    // Note: rows carrying breakdown.warnings are already visible (see
-    // _ctpHasIssue rule 4), so we only need to count assiette-level warnings
-    // that slipped past rate_mismatch / amount_mismatch on otherwise-OK CTPs.
-    var hiddenWarningCount = 0;
-    if (filterActive) {
-      ctpRows.forEach(function (row, idx) {
-        if (issueFlags[idx]) return;
-        row.assietteDetails.forEach(function (d) {
-          if (d.warnings && d.warnings.length > 0 && !d.rate_mismatch && !d.amount_mismatch) {
-            hiddenWarningCount += d.warnings.length;
-          }
-        });
-      });
-    }
-    var hiddenWarningNotice = hiddenWarningCount > 0
-      ? '<div class="contrib-hidden-warnings">'
-        + hiddenWarningCount + ' avertissement(s) sur des lignes masqu\u00e9es par le filtre'
-        + '</div>'
-      : '';
 
     // When the filter is hiding reconciled rows, surface a muted, clickable
     // footer hint so the user knows how many OK codes are tucked away and can
@@ -1982,8 +1791,7 @@
       + '<tbody>' + bodyHtml + '</tbody>'
       + '</table>'
       + '</div>'
-      + hiddenOkHint
-      + hiddenWarningNotice;
+      + hiddenOkHint;
   }
 
   function renderContributionDetailsTable(item) {
@@ -2229,8 +2037,6 @@
       var ctpCode = ctpRow.dataset.ctpCode || "";
       // Find the immediate expansion sibling row so we can toggle it.
       var expansionRow = ctpRow.nextElementSibling;
-      // Skip a warning row if present (it sits between the parent row and
-      // the expansion row when UrssafCodeBreakdown.warnings is non-empty).
       while (expansionRow && !expansionRow.classList.contains("urssaf-ctp-expansion")) {
         expansionRow = expansionRow.nextElementSibling;
       }

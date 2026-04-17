@@ -3,8 +3,8 @@
 These are cheap string/regex checks against the shipped frontend bundles.
 They don't exercise JS at runtime — they exist so an accidental revert of
 the URSSAF UX cleanup (NC token unification, collapsed-row noise removal,
-header rename, pill variants, OK-with-warnings branch) is caught in CI
-instead of reaching users.
+header rename, pill variants, warning removal) is caught in CI instead of
+reaching users.
 
 By design these guards are brittle: if someone renames one of these
 classes or strings deliberately, the test fails and they should re-read
@@ -68,24 +68,18 @@ def test_non_calculable_uses_em_dash_cell_na_pattern():
     )
 
 
-def test_collapsed_row_warning_markup_moved_to_expansion():
-    """The full-sentence warning row is gone from the collapsed state,
-    replaced by the `urssaf-expansion-warnings` container that lives inside
-    `urssaf-ctp-expansion__content`."""
+def test_warning_markup_removed_from_urssaf_rows():
+    """Warning-specific row markup is gone from the URSSAF bundle."""
     text = _app_js()
     assert "urssaf-ctp-warning-row" not in text, (
-        "`urssaf-ctp-warning-row` class (the collapsed-state full-sentence "
-        "warning row) must be removed — the warning sentence now lives "
-        "inside the expanded state via `urssaf-expansion-warnings`."
+        "`urssaf-ctp-warning-row` must stay removed."
     )
-    assert "urssaf-expansion-warnings" in text, (
-        "`urssaf-expansion-warnings` container must exist — it replaces "
-        "the old inline warning row in the expanded state."
+    assert "urssaf-expansion-warnings" not in text, (
+        "The URSSAF expansion should no longer render warning containers."
     )
-    assert "urssaf-ctp-row--has-warnings" in text, (
-        "`urssaf-ctp-row--has-warnings` modifier must be applied on rows "
-        "with warnings — it drives the subtle left-accent stripe that is "
-        "the only collapsed-state signal for row-level warnings."
+    assert "urssaf-ctp-row--has-warnings" not in text, (
+        "The collapsed URSSAF row should no longer carry warning-only "
+        "styling."
     )
 
 
@@ -121,22 +115,18 @@ def test_delta_header_renamed():
     )
 
 
-def test_ok_with_warnings_card_header_branch():
-    """When aggregate status is OK but row-level warnings exist, the card
-    header must render the muted sub-line instead of the loud OK pill."""
+def test_warning_header_branch_removed():
+    """Contribution cards no longer show warning-specific header states."""
     text = _app_js()
-    assert "contrib-summary__ok-with-warnings" in text, (
-        "`contrib-summary__ok-with-warnings` span must be emitted in the "
-        "`item.status === 'ok' && allWarnings.length > 0` branch."
+    assert "contrib-summary__ok-with-warnings" not in text, (
+        "The contribution header should no longer render the old OK-with-"
+        "warnings sub-line."
     )
-    assert "point(s) de vigilance" in text, (
-        "Expected user-facing copy 'point(s) de vigilance' on the muted "
-        "OK-with-warnings sub-line."
+    assert "point(s) de vigilance" not in text, (
+        "Warning-count copy should no longer appear in contribution headers."
     )
-    # The branch guard on the OK pill must actually suppress it.
-    assert "showOkBadge" in text, (
-        "`showOkBadge` control variable must exist — it suppresses the "
-        "status-badge--ok pill when warnings exist."
+    assert "showOkBadge" not in text, (
+        "The old warning-specific badge suppression branch should be gone."
     )
 
 
@@ -176,92 +166,180 @@ def test_hidden_ok_hint_present_at_bottom():
     )
 
 
-def test_compact_expansion_warning_replaces_banner():
-    """The row-level warning in the expanded state is a compact one-liner
-    with a tooltip, not the former full-width banner."""
+def test_expanded_warning_markup_removed():
+    """The expanded URSSAF view should no longer render warning-specific UI."""
     text = _app_js()
-    assert "urssaf-expansion-warning__text" in text, (
-        "Expected compact warning markup `urssaf-expansion-warning__text` "
-        "(single-line, ellipsis-clipped) inside the expansion."
+    assert "urssaf-expansion-warning__text" not in text, (
+        "Expanded URSSAF warnings should not render dedicated warning rows."
     )
-    # The old full-banner pattern used `.inline-warning` divs inside the
-    # `urssaf-expansion-warnings` container. We want the compact class
-    # instead — check the compact class lives inside that container.
-    assert "urssaf-expansion-warning " in text or 'urssaf-expansion-warning"' in text, (
-        "Expected `urssaf-expansion-warning` compact row inside the "
-        "expansion warnings container."
+    assert "inline-warning" not in text, (
+        "Legacy inline warning markup should stay removed."
     )
 
 
-def test_reconstructed_declared_amount_uses_subtle_origin_line():
-    """Rebuilt D rows keep the provenance cue, but as a low-noise origin
-    line rather than a colored pill badge in the collapsed amount cell."""
+def test_reconstructed_declared_amount_no_longer_shows_inline_origin_label():
+    """Rebuilt D rows stay visually quiet in the collapsed state: no
+    `Reconstitué` or `Mixte` micro-label repeated on each amount cell."""
     text = _app_js()
-    assert "Reconstitué" in text, (
-        "Expected `Reconstitué` copy in app.js for reconstructed "
-        "URSSAF declared amounts."
+    assert "amount_source === 'reconstructed'" not in text, (
+        "The frontend should no longer branch on `amount_source === "
+        "'reconstructed'` now that reconstructed rows do not display a "
+        "special inline provenance marker."
     )
-    assert "amount_source === 'reconstructed'" in text, (
-        "The URSSAF bundle must branch on `amount_source === 'reconstructed'` "
-        "to render reconstructed declared amounts distinctly."
+    assert "Reconstitué" not in text, (
+        "The collapsed URSSAF amount cell should no longer repeat a "
+        "`Reconstitué` label on every reconstructed row."
     )
-    assert "amount-origin" in text, (
-        "Expected the collapsed amount cell to use the subtle `amount-origin` "
-        "meta line for reconstructed or mixed provenance."
+    assert "Mixte" not in text, (
+        "The collapsed URSSAF amount cell should no longer repeat a "
+        "`Mixte` label on every partially reconstructed row."
     )
 
 
 def test_informational_partial_rows_are_driven_by_comparison_mode():
     """URSSAF informational-partial presentation must key off the backend
-    `comparison_mode` contract, not off a French warning sentence."""
+    `comparison_mode` contract, not off any warning-specific markup."""
     text = _app_js()
     assert "comparison_mode === 'informational_partial'" in text, (
         "Expected explicit frontend branch on `comparison_mode === "
         "'informational_partial'` so informational rows do not depend on "
-        "warning text parsing."
+        "warning-related UI."
     )
     assert "_isInformationalPartialComparison" in text, (
-        "Expected dedicated helper for informational-partial rows so the "
-        "filter, stripe, and note share the same machine-readable contract."
+        "Expected dedicated helper for informational-partial rows so the UI "
+        "can still react to the backend contract where needed."
     )
-    assert "cell-info-state" in text, (
-        "Expected a dedicated informational delta state instead of the "
-        "generic non-calculable em-dash."
+    assert re.search(
+        r"if \(_isInformationalPartialComparison\(breakdown\)\)\s*\{\s*return true;\s*\}",
+        text,
+    ) is None, (
+        "Informational-partial rows should no longer be forced into the "
+        "`écarts` bucket just because the comparison mode is partial."
     )
-    assert "Rattaché · Partiel" in text, (
-        "Expected collapsed informational rows to say `Rattaché · Partiel` "
-        "rather than plain `Rattaché`."
+    assert "cell-info-state" not in text, (
+        "Informational-partial rows should no longer render a dedicated "
+        "visible `Partiel` delta state."
+    )
+    assert "Rattaché · Partiel" not in text, (
+        "Collapsed informational rows should no longer say "
+        "`Rattaché · Partiel`."
     )
     assert "Delta non affiché : montant URSSAF complet vs total salarié partiel" in text, (
         "Expected explicit delta tooltip for informational-partial rows."
     )
-    assert "Partiel" in text, (
-        "Expected the collapsed delta cell to render a dedicated "
-        "`Partiel` state."
+    assert ">OK</span>" in text, (
+        "Expected collapsed rattachable rows to use the simpler visible "
+        "`OK` label."
     )
 
 
-def test_informational_partial_note_present_in_urssaf_expansion():
-    """Expanded URSSAF rows should explain informational-partial semantics
-    from the backend flag, independently of row warning copy."""
+def test_informational_partial_note_removed_from_urssaf_expansion():
+    """Informational-partial rows keep their dedicated status/delta UI, but
+    the long explanatory note is no longer repeated inline in the expansion."""
     text = _app_js()
-    assert "Le delta CTP est donc volontairement masqué." in text, (
-        "Expected explicit explanatory note in the URSSAF expansion for "
-        "comparison_mode=informational_partial rows."
+    assert "Comparaison informative uniquement." not in text, (
+        "The expanded URSSAF row should not repeat the informational-"
+        "partial explanation inline."
+    )
+    assert "Le delta CTP est donc volontairement masqué." not in text, (
+        "The expanded URSSAF row should not repeat the masked-delta "
+        "explanation inline."
     )
 
 
-def test_mixed_declared_amount_badge_present():
-    """Mixed declared+reconstructed rows surface an explicit cue instead of
-    inheriting the last processed detail source."""
+def test_mixed_declared_amount_no_longer_has_frontend_specific_branch():
+    """Mixed declared+reconstructed rows no longer render a dedicated
+    frontend badge or note, so the old UI-specific branch should be gone."""
     text = _app_js()
-    assert "amount_source === 'mixed'" in text, (
-        "The URSSAF bundle must branch on `amount_source === 'mixed'` so "
-        "mixed rows do not pretend to be fully reconstructed or fully literal."
+    assert "amount_source === 'mixed'" not in text, (
+        "The frontend should no longer branch on `amount_source === 'mixed'` "
+        "now that the inline mixed-origin cue has been removed."
     )
-    assert "Mixte" in text, (
-        "Expected `Mixte` copy in app.js for partially reconstructed URSSAF "
-        "declared amounts."
+    assert "Montant URSSAF reconstitué pour la comparaison." not in text, (
+        "The expanded URSSAF row should not repeat the reconstructed-origin "
+        "explanation inline."
+    )
+
+
+def test_warning_counts_removed_from_trust_banner_and_cards():
+    """Warnings no longer affect the trust banner or contribution headers."""
+    text = _app_js()
+    assert "countComparisonWarnings" not in text, (
+        "The frontend should no longer compute warning counts for the "
+        "contribution trust banner."
+    )
+    assert "collectComparisonWarnings" not in text, (
+        "The frontend should no longer aggregate warning lists for "
+        "contribution cards."
+    )
+    assert "avert." not in text, (
+        "Warning-count shorthand should no longer appear in the shipped UI."
+    )
+    assert "trust-count--warning" not in text, (
+        "The trust banner should no longer render a warning count column."
+    )
+
+
+def test_collapsible_headers_use_compact_horizontal_layout():
+    """Collapsible header rows keep a horizontal structure with compact
+    amount cells and inline identity metadata."""
+    app = _app_js()
+    css = _style_css()
+    assert "contrib-summary__identity" in app, (
+        "Top-level contribution headers should render title and metadata "
+        "inside a dedicated inline identity wrapper."
+    )
+    assert ".contrib-summary__identity" in css, (
+        "Expected CSS for the inline contribution identity wrapper."
+    )
+    assert "amount-stack--compact" in app, (
+        "Collapsed amount cells should use the compact stack variant when "
+        "no second-line provenance label is rendered."
+    )
+    assert ".amount-stack--compact" in css, (
+        "Expected CSS for the compact one-line amount stack."
+    )
+
+
+def test_employee_details_hide_inline_dsn_columns_and_use_info_icon():
+    """Employee drill-down should keep the amount column aligned while
+    moving S81/DSN context behind a compact info icon."""
+    app = _app_js()
+    css = _style_css()
+    assert "<th>Code S81</th>" not in app, (
+        "The employee drill-down should no longer render a visible "
+        "`Code S81` column."
+    )
+    assert "<th>Lignes DSN</th>" not in app, (
+        "The employee drill-down should no longer render a visible "
+        "`Lignes DSN` column."
+    )
+    assert "urssaf-inline-info" in app, (
+        "Expected a compact inline info icon next to employee amounts."
+    )
+    assert "data-tooltip=" in app, (
+        "Expected the inline info icon to expose an explicit tooltip payload, "
+        "not only a browser-native title attribute."
+    )
+    assert "Codes S81" in app and "Lignes DSN" in app, (
+        "The info icon tooltip should still carry S81 and DSN-line context."
+    )
+    assert "colspan=\"3\">Salari" in app, (
+        "The employee-name cell should span the hidden code/declared "
+        "alignment space so "
+        "the amount stays under the parent `Individuel` column."
+    )
+    assert ".urssaf-employee-amount" in css and ".urssaf-inline-info" in css, (
+        "Expected dedicated CSS for the inline amount + info icon layout."
+    )
+    assert ".urssaf-inline-info::after" in css, (
+        "Expected an explicit hover tooltip style for the inline info icon."
+    )
+    assert ".contrib-item--expanded" in css and "overflow: visible;" in css, (
+        "Expanded contribution cards must allow tooltip overflow."
+    )
+    assert ".urssaf-employees-table td,\n.urssaf-employees-table th" in css, (
+        "Employee detail table cells must allow tooltip overflow."
     )
 
 

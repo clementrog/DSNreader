@@ -8,21 +8,21 @@ Post-merge hardening (2026-04-15) narrowed the business behavior explicitly:
 
 - `100P` may receive the apprentice excess above threshold.
 - `726P` keeps the apprentice under-threshold share.
-- `100D` excludes apprentice rows.
-- `726D` keeps apprentice D rows exactly as declared / matched in the DSN.
+- `100D` receives the apprentice excess above threshold.
+- `726D` keeps only the apprentice under-threshold share.
 
 This is intentional.
 
 The earlier implementation applied apprentice redistribution to both `P` and
 `D` rows. That created wrong employee subtotals on real files: the `D` side
 was moving apprentice amounts that the validated business parity expected to
-stay on `726D`.
+stay on `726D` only up to the threshold.
 
 Practical consequence for developers:
 
 - only `100P` / `726P` should call the threshold allocator
-- `100D` must behave like "general-regime non-apprentice only"
-- `726D` must not replay the threshold split
+- `100D` must include the apprentice excess above threshold
+- `726D` must keep only the under-threshold share
 
 ## Source basis
 

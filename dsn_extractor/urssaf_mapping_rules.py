@@ -221,6 +221,23 @@ _RULES: dict[str, UrssafMappingRule] = {
         product_status="enabled",
         source_refs=("validation Thomas",),
     ),
+    # ---- CTP 430: Complément cotisation AF (1:1) -------------------------
+    "430": UrssafMappingRule(
+        ctp_code="430",
+        ctp_label="COMPLEMENT COTISATION AF",
+        cardinality="1:1",
+        individual_codes_s81=("102",),
+        base_codes_s78=frozenset({"03"}),
+        conditions=UrssafMappingConditions(
+            excludes_contract_nature=frozenset({"80"}),
+        ),
+        confidence="high",
+        product_status="enabled",
+        source_refs=(
+            "publicodes 13.1 AF COMPLEMENT 102",
+            "publicodes 13.3 CTP 430",
+        ),
+    ),
     # ---- CTP 635: Complément cotisation maladie (1:1) --------------------
     "635": UrssafMappingRule(
         ctp_code="635",
@@ -228,9 +245,15 @@ _RULES: dict[str, UrssafMappingRule] = {
         cardinality="1:1",
         individual_codes_s81=("907",),
         base_codes_s78=frozenset({"03"}),
+        conditions=UrssafMappingConditions(
+            excludes_contract_nature=frozenset({"80"}),
+        ),
         confidence="high",
         product_status="enabled",
-        source_refs=("validation Thomas",),
+        source_refs=(
+            "validation Thomas",
+            "publicodes 13.3 CTP 635",
+        ),
     ),
     # ---- CTP 668: Réduction générale étendue (sign-gated, negative) ----
     "668": UrssafMappingRule(
@@ -302,17 +325,19 @@ _RULES: dict[str, UrssafMappingRule] = {
         source_refs=("validation Thomas",),
     ),
     # ---- CTP 863: RG mandataires sociaux (1:N, component-scoped) --------
-    # Same component structure as CTP 100 but restricted to mandataire employees.
+    # Same core structure as CTP 100 but restricted to mandataire employees.
+    # Thomas validated that mandataire complements 102 / 907 must be absorbed
+    # into 863D rather than staying under 430 / 635.
     "863": UrssafMappingRule(
         ctp_code="863",
         ctp_label="RG MANDATAIRES SOCIAUX",
         cardinality="1:N",
-        individual_codes_s81=("045", "068", "074", "075", "076"),
+        individual_codes_s81=("045", "068", "074", "075", "076", "102", "907"),
         components=(
             UrssafMappingComponent(
                 assiette_qualifiers_s23=frozenset({"920"}),
                 base_codes_s78=frozenset({"03"}),
-                individual_codes_s81=("045", "068", "074", "075", "076"),
+                individual_codes_s81=("045", "068", "074", "075", "076", "102", "907"),
             ),
             UrssafMappingComponent(
                 assiette_qualifiers_s23=frozenset({"921"}),

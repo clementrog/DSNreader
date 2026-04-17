@@ -123,9 +123,10 @@ ASSIETTE_QUALIFIER_LABELS: dict[str, str] = {
     "921": "Taux plafonné",
 }
 
-# DSN 13.3 defines these S21.G00.23 lines as carrying only the enterprise ATMP
-# rate in .003 while leaving .005 empty. They must not be validated against the
-# generic CTP reference rate or turned into a payable amount.
+# DSN 13.3 defines these S21.G00.23 lines as carrying the enterprise ATMP rate
+# in .003 while leaving .005 empty. Product rule (Thomas, 2026-04) is to
+# rebuild the establishment-side amount by adding this ATMP rate to the generic
+# basket rate from the CTP reference table.
 AT_RATE_ONLY_CTPS: set[tuple[str, str]] = {
     ("100", "920"),
     ("726", "920"),
@@ -148,6 +149,29 @@ RECONSTRUCTABLE_AT_ONLY_CTPS: set[tuple[str, str]] = {
     ("726", "920"),
     ("863", "920"),
 }
+
+
+def _select_effective_reconstruction_rate(
+    ctp_code: str,
+    assiette_qualifier: str | None,
+    *,
+    expected_rate: Decimal | None,
+    rate: Decimal | None,
+) -> Decimal | None:
+    """Return the rate to use when rebuilding a missing S23.005 amount.
+
+    For 100/726/863 on qualifier 920, DSN 13.3 carries the company ATMP rate in
+    S23.003 while the checked-in CTP reference table carries the basket rate
+    excluding ATMP. Thomas validated that the reconstructed amount must use the
+    sum of both rates.
+    """
+    if (
+        (ctp_code, assiette_qualifier or "") in RECONSTRUCTABLE_AT_ONLY_CTPS
+        and expected_rate is not None
+        and rate is not None
+    ):
+        return expected_rate + rate
+    return expected_rate if expected_rate is not None else rate
 APPRENTICE_SPLIT_EXACT_RATE_BY_CODE_BASE_AND_CTP: dict[tuple[str, str, str], Decimal] = {
     # Publicodes DSN 13.1 apprentice-specific slices for S81 code 076.
     # 726 keeps the under-threshold share; 100 receives the excess share.
@@ -398,6 +422,8 @@ class EmployeeS81Contribution:
     contract_natures: frozenset[str]
     contract_start_date: dt.date | None
     threshold_context_issue: str | None = None
+    observed_apprentice_base_726: Decimal | None = None
+    observed_apprentice_base_100: Decimal | None = None
 
 
 def _lookup_monthly_smic(reference_date: dt.date | None) -> Decimal:
@@ -557,6 +583,53 @@ def _allocate_apprentice_amount(
     return signed_target * allocated_amount, None
 
 
+def _allocate_apprentice_base(
+    ctp_code: str,
+    contribution: EmployeeS81Contribution,
+    reference_date: dt.date | None,
+) -> tuple[Decimal | None, str | None]:
+    """Return the assiette share allocable to 100/726 for apprentice D rows.
+
+    When the DSN already carries observed split bases through the apprentice
+    076 rows, reuse those exact bases for all apprentice D components so the
+    employee-side subtotal matches the payroll perimeter validated by Thomas.
+    Otherwise, fall back to the threshold reconstruction based on contract
+    start date and monthly SMIC.
+    """
+    is_apprentice = "02" in contribution.contract_natures
+    if ctp_code == "100" and not is_apprentice:
+        return contribution.base_amount_s81 or contribution.base_amount_s78, None
+    if ctp_code == "726" and not is_apprentice:
+        return None, None
+    if ctp_code not in {"100", "726"} or not is_apprentice:
+        return contribution.base_amount_s81 or contribution.base_amount_s78, None
+
+    observed_base = (
+        contribution.observed_apprentice_base_100
+        if ctp_code == "100"
+        else contribution.observed_apprentice_base_726
+    )
+    if observed_base is not None:
+        return observed_base, None
+
+    base_amount = contribution.base_amount_s81 or contribution.base_amount_s78
+    if base_amount is None or base_amount <= 0:
+        return None, "missing_threshold_context"
+    if contribution.threshold_context_issue is not None:
+        return None, contribution.threshold_context_issue
+
+    threshold = _compute_apprentice_threshold(
+        contribution.contract_start_date,
+        reference_date,
+    )
+    if threshold is None:
+        return None, "missing_threshold_context"
+
+    base_726 = min(base_amount, threshold)
+    base_100 = max(base_amount - threshold, Decimal(0))
+    return (base_726 if ctp_code == "726" else base_100), None
+
+
 def _format_apprentice_allocation_warnings(
     excluded_entries: list[dict[str, str]],
 ) -> list[str]:
@@ -636,6 +709,10 @@ def _collect_s81_by_individual_code(
             elif len(contract_start_dates) > 1 or len(contract_natures) > 1:
                 threshold_context_issue = "unsupported_multi_contract_context"
 
+        pending_rows: list[dict[str, object]] = []
+        observed_apprentice_base_726: Decimal | None = None
+        observed_apprentice_base_100: Decimal | None = None
+
         for s78 in emp_groups.s78_blocks:
             base_code_78 = (_find_value(s78.records, "S21.G00.78.001") or "").strip()
             base_amount_78 = _dec(_find_value(s78.records, "S21.G00.78.004"))
@@ -648,19 +725,57 @@ def _collect_s81_by_individual_code(
                 rate_percent = _dec(_find_value(s81.records, "S21.G00.81.007"))
                 if amt is None and base_amount_81 is None and rate_percent is None:
                     continue
-                by_code.setdefault(code_81, []).append(EmployeeS81Contribution(
+                pending_rows.append({
+                    "code_81": code_81,
+                    "amt": amt,
+                    "record_lines": _record_lines(s81.records),
+                    "base_code_78": base_code_78,
+                    "base_amount_78": base_amount_78,
+                    "base_amount_81": base_amount_81,
+                    "rate_percent": rate_percent,
+                })
+
+                if code_81 == "076" and base_code_78 == "03":
+                    target_ctp = _observed_apprentice_target_ctp(EmployeeS81Contribution(
+                        employee_index=emp_idx,
+                        employee_name=emp_name,
+                        individual_code=code_81,
+                        amount=amt,
+                        record_lines=[],
+                        base_code_s78=base_code_78,
+                        base_amount_s78=base_amount_78,
+                        base_amount_s81=base_amount_81,
+                        rate_percent=rate_percent,
+                        contract_natures=contract_natures,
+                        contract_start_date=contract_start_date,
+                        threshold_context_issue=threshold_context_issue,
+                    ))
+                    if target_ctp == "726" and base_amount_81 is not None:
+                        observed_apprentice_base_726 = (
+                            (observed_apprentice_base_726 or Decimal(0)) + base_amount_81
+                        )
+                    elif target_ctp == "100" and base_amount_81 is not None:
+                        observed_apprentice_base_100 = (
+                            (observed_apprentice_base_100 or Decimal(0)) + base_amount_81
+                        )
+
+        for row in pending_rows:
+            code_81 = row["code_81"]
+            by_code.setdefault(code_81, []).append(EmployeeS81Contribution(
                     employee_index=emp_idx,
                     employee_name=emp_name,
                     individual_code=code_81,
-                    amount=amt,
-                    record_lines=_record_lines(s81.records),
-                    base_code_s78=base_code_78,
-                    base_amount_s78=base_amount_78,
-                    base_amount_s81=base_amount_81,
-                    rate_percent=rate_percent,
+                    amount=row["amt"],
+                    record_lines=row["record_lines"],
+                    base_code_s78=row["base_code_78"],
+                    base_amount_s78=row["base_amount_78"],
+                    base_amount_s81=row["base_amount_81"],
+                    rate_percent=row["rate_percent"],
                     contract_natures=contract_natures,
                     contract_start_date=contract_start_date,
                     threshold_context_issue=threshold_context_issue,
+                    observed_apprentice_base_726=observed_apprentice_base_726,
+                    observed_apprentice_base_100=observed_apprentice_base_100,
                 ))
 
     return by_code, has_any_s78_s81
@@ -704,6 +819,7 @@ def _build_urssaf_code_breakdowns(
     raw_declared_by_row: dict[tuple[str, str], Decimal | None] = {}
     chosen_sources_by_row: dict[tuple[str, str], set[str]] = {}
     label_by_row: dict[tuple[str, str], str | None] = {}
+    comparable_rate_by_row: dict[tuple[str, str], Decimal | None] = {}
     # A row is "complete" only when every one of its contributing detail
     # rows produced a chosen amount. Start optimistic, flip to False on the
     # first non-calculable variant seen.
@@ -728,6 +844,12 @@ def _build_urssaf_code_breakdowns(
             complete_by_row[row_key] = True
             qualifiers_by_row[row_key] = set()
             chosen_sources_by_row[row_key] = set()
+            comparable_rate_by_row[row_key] = _select_effective_reconstruction_rate(
+                ctp,
+                d.assiette_qualifier,
+                expected_rate=d.expected_rate,
+                rate=d.rate,
+            )
 
         if d.assiette_qualifier:
             qualifiers_by_row[row_key].add(d.assiette_qualifier)
@@ -934,27 +1056,36 @@ def _build_urssaf_code_breakdowns(
                 filtered_rows.append(row)
             included_rows = filtered_rows
 
-        if ctp == "100" and mapped != "100P":
-            included_rows = [
-                row for row in included_rows
-                if "02" not in row.contract_natures
-            ]
-
         has_partial_employee_inputs = any(row.amount is None for row in included_rows)
         has_excluded_component_matches = bool(excluded_entries)
 
-        # Phase 4.6: Apprentice threshold allocation for CTP 726 / 100.
+        # Phase 4.6: Apprentice threshold allocation for CTP 726 / 100 on both
+        # D and P rows. Product rule (Thomas, 2026-04): the employee-side
+        # subtotal shown next to 100D/726D must be comparable to the rebuilt
+        # establishment basket, so apprentice D components are split too.
         allocation_excluded_entries: list[dict[str, str]] = []
-        if mapped in {"100P", "726P"}:
+        comparable_rate = comparable_rate_by_row.get(row_key)
+        row_qualifiers = qualifiers_by_row.get(row_key, set())
+        is_d_like_row = mapped in {"100D", "726D"} or (
+            mapped in {"100", "726"} and "920" in row_qualifiers
+        )
+        is_p_like_row = mapped in {"100P", "726P"} or (
+            mapped in {"100", "726"} and "921" in row_qualifiers
+        )
+        if mapped in {"100D", "100P", "726D", "726P", "100", "726"}:
             allocated_rows: list[tuple[EmployeeS81Contribution, Decimal]] = []
             for row in included_rows:
                 if row.amount is None:
                     continue
-                allocated_amount, exclusion_reason = _allocate_apprentice_amount(
-                    ctp,
-                    row,
-                    reference_date,
-                )
+                if is_p_like_row or is_d_like_row:
+                    allocated_amount, exclusion_reason = _allocate_apprentice_amount(
+                        ctp,
+                        row,
+                        reference_date,
+                    )
+                else:
+                    allocated_amount = row.amount
+                    exclusion_reason = None
                 if exclusion_reason is not None:
                     allocation_excluded_entries.append({
                         "code": row.individual_code,
@@ -1015,11 +1146,14 @@ def _build_urssaf_code_breakdowns(
         # Aggregate by employee_index — one row per employee, with the
         # contributing S81 codes surfaced as metadata.
         by_emp: dict[int, tuple[str, Decimal, list[int], set[str]]] = {}
+        apprentice_d_row_by_emp: dict[int, EmployeeS81Contribution] = {}
         for row, allocated_amount in allocated_rows:
             emp_idx = row.employee_index
             emp_name = row.employee_name
             lines = row.record_lines
             s81_code = row.individual_code
+            if is_d_like_row and ctp in {"100", "726"} and "02" in row.contract_natures:
+                apprentice_d_row_by_emp.setdefault(emp_idx, row)
             if emp_idx in by_emp:
                 prev_name, prev_amt, prev_lines, prev_codes = by_emp[emp_idx]
                 by_emp[emp_idx] = (
@@ -1030,6 +1164,41 @@ def _build_urssaf_code_breakdowns(
                 )
             else:
                 by_emp[emp_idx] = (emp_name, allocated_amount, list(lines), {s81_code})
+
+        # Thomas's validated product rule for 100D / 726D compares each
+        # apprentice employee on a synthetic comparable subtotal:
+        # split assiette × (basket rate + AT/MP rate). Build that amount once
+        # per employee, while keeping the real contributing S81 codes/lines.
+        if (
+            is_d_like_row
+            and ctp in {"100", "726"}
+            and comparable_rate is not None
+            and amount_source == "reconstructed"
+        ):
+            for emp_idx, row in apprentice_d_row_by_emp.items():
+                allocated_base, exclusion_reason = _allocate_apprentice_base(
+                    ctp,
+                    row,
+                    reference_date,
+                )
+                if exclusion_reason is not None or allocated_base is None:
+                    if exclusion_reason is not None:
+                        allocation_excluded_entries.append({
+                            "code": row.individual_code,
+                            "reason": exclusion_reason,
+                            "employee_name": row.employee_name,
+                        })
+                    continue
+                prev_name, _, prev_lines, prev_codes = by_emp[emp_idx]
+                synthetic_amount = (
+                    allocated_base * comparable_rate / Decimal(100)
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                by_emp[emp_idx] = (
+                    prev_name,
+                    synthetic_amount,
+                    prev_lines,
+                    prev_codes,
+                )
 
         individual_total = sum(
             (amt for _, amt, _, _ in by_emp.values()),
@@ -1052,6 +1221,16 @@ def _build_urssaf_code_breakdowns(
         delta: Decimal | None = None
         delta_within_unit = False
         comparison_mode: str | None = None
+        if declared is not None:
+            delta = declared - individual_total
+        if display_absolute:
+            # Business tolerance for reduction rows compares magnitudes.
+            delta_within_unit = _urssaf_row_delta_within_unit(
+                abs(declared) if declared is not None else None,
+                abs(individual_total),
+            )
+        else:
+            delta_within_unit = _urssaf_row_delta_within_unit(declared, individual_total)
         if (
             mapped in {"100D", "726D", "863D"}
             and amount_source == "reconstructed"
@@ -1060,17 +1239,6 @@ def _build_urssaf_code_breakdowns(
             comparison_mode = "informational_partial"
             if _PARTIAL_RECONSTRUCTED_D_WARNING not in row_warnings:
                 row_warnings.append(_PARTIAL_RECONSTRUCTED_D_WARNING)
-        else:
-            if declared is not None:
-                delta = declared - individual_total
-            if display_absolute:
-                # Business tolerance for reduction rows compares magnitudes.
-                delta_within_unit = _urssaf_row_delta_within_unit(
-                    abs(declared) if declared is not None else None,
-                    abs(individual_total),
-                )
-            else:
-                delta_within_unit = _urssaf_row_delta_within_unit(declared, individual_total)
 
         breakdowns.append(UrssafCodeBreakdown(
             ctp_code=ctp,
@@ -1181,17 +1349,22 @@ def _compute_urssaf(
             declared = _dec(declared_raw) if declared_raw and declared_raw.strip() else None
             rate = _dec(rate_raw) if rate_raw and rate_raw.strip() else None
             base = _dec(base_raw) if base_raw and base_raw.strip() else None
-            is_at_rate_only = (
+            is_at_rate_ctp = (
                 _is_at_rate_only_ctp(ctp_code, assiette_qual or None)
                 and expected_rate is not None
-                and declared is None
                 and rate is not None
                 and rate < expected_rate
             )
+            is_at_rate_only = is_at_rate_ctp and declared is None
 
             recomputed: Decimal | None = None
             amount_source: str | None = "declared" if declared is not None else None
-            effective_rate = expected_rate if expected_rate is not None else rate
+            effective_rate = _select_effective_reconstruction_rate(
+                ctp_code,
+                assiette_qual or None,
+                expected_rate=expected_rate,
+                rate=rate,
+            )
             # Net-entreprises documents F/R CTP formats as special
             # reduction/regularization lines whose business amount lives in
             # S21.G00.23.005 rather than being safely recomputable from
@@ -1222,7 +1395,7 @@ def _compute_urssaf(
             rate_mismatch = False
             amount_mismatch = False
 
-            if rate is not None and expected_rate is not None and not is_at_rate_only:
+            if rate is not None and expected_rate is not None and not is_at_rate_ctp:
                 rate_mismatch = not _within_tolerance(rate, expected_rate, _RATE_TOL_0001)
                 if rate_mismatch:
                     ctp_warnings.append(

@@ -1790,10 +1790,67 @@ class TestUrssafMappedCodeSplit:
         bs = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "100"]
         b_d = [b for b in bs if b.mapped_code == "100D"][0]
         assert b_d.mapping_status == "rattachable"
-        assert b_d.declared_amount == Decimal("1317.00")
+        assert b_d.declared_amount == Decimal("1388.00")
         assert b_d.amount_source == "reconstructed"
         assert b_d.individual_amount == Decimal("80.00")
-        assert b_d.delta == Decimal("1237.00")
+        assert b_d.delta == Decimal("1308.00")
+
+    def test_urssaf_726D_no_declared_uses_reference_plus_at_rate(self):
+        emp = _emp(
+            _r("S21.G00.30.001", "1", 10),
+            _r("S21.G00.30.002", "DUPONT", 11),
+            _r("S21.G00.30.004", "Jean", 12),
+            _r("S21.G00.40.001", "15042025", 13),
+            _r("S21.G00.40.007", "02", 14),
+            _r("S21.G00.78.001", "03", 20),
+            _r("S21.G00.78.004", "1000.00", 21),
+            _r("S21.G00.81.001", "045", 22),
+            _r("S21.G00.81.004", "80.00", 23),
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "100.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "100.00", 4),
+            _r("S21.G00.23.001", "726", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "0.71", 7),
+            _r("S21.G00.23.004", "10000.00", 8),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        bs = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "726"]
+        b_d = [b for b in bs if b.mapped_code == "726D"][0]
+        assert b_d.mapping_status == "rattachable"
+        assert b_d.declared_amount == Decimal("1348.00")
+        assert b_d.amount_source == "reconstructed"
+
+    def test_urssaf_863D_reconstructs_with_complements_and_at_rate(self):
+        emp = self._employee(
+            *self._s78_s81("045", "80.00", base_code="03", start_line=20),
+            *self._s78_s81("102", "10.00", base_code="03", start_line=30),
+            *self._s78_s81("907", "20.00", base_code="03", start_line=40),
+            contract_nature="80",
+        )
+        est = _est(
+            _r("S21.G00.20.001", "78861779300013", 1),
+            _r("S21.G00.20.005", "100.00", 2),
+            _r("S21.G00.22.001", "78861779300013", 3),
+            _r("S21.G00.22.005", "100.00", 4),
+            _r("S21.G00.23.001", "863", 5),
+            _r("S21.G00.23.002", "920", 6),
+            _r("S21.G00.23.003", "0.71", 7),
+            _r("S21.G00.23.004", "10000.00", 8),
+            employees=[emp],
+        )
+        urssaf = self._urssaf(est)
+        bs = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "863"]
+        b_d = [b for b in bs if b.mapped_code == "863D"][0]
+        assert b_d.mapping_status == "rattachable"
+        assert b_d.declared_amount == Decimal("2168.00")
+        assert b_d.amount_source == "reconstructed"
+        assert b_d.individual_amount == Decimal("110.00")
+        assert sorted(b_d.applied_individual_codes) == ["045", "102", "907"]
 
     def test_reconstructed_d_row_becomes_informational_when_partiality_comes_from_excluded_component(self):
         """Informational downgrade must not depend only on amount=None.
@@ -1825,7 +1882,8 @@ class TestUrssafMappedCodeSplit:
         assert row.mapping_status == "rattachable"
         assert row.amount_source == "reconstructed"
         assert row.individual_amount == Decimal("6.67")
-        assert row.delta is None
+        assert row.delta == row.declared_amount - row.individual_amount
+        assert row.delta_within_unit is False
         assert row.comparison_mode == "informational_partial"
         assert any(e["reason"] == "wrong_base" for e in row.excluded_individual_codes)
         assert any("Comparaison informative uniquement" in warning for warning in row.warnings)
@@ -1875,7 +1933,7 @@ class TestUrssafMappedCodeSplit:
 
         assert rows["100D"].mapping_status == "rattachable"
         assert rows["100D"].comparison_mode == "informational_partial"
-        assert rows["430D"].mapping_status == "non_rattache"
+        assert rows["430D"].mapping_status == "manquant_individuel"
         assert rows["430D"].declared_amount == Decimal("793.49")
         assert rows["635D"].mapping_status == "manquant_individuel"
         assert rows["635D"].declared_amount == Decimal("2644.98")
@@ -2129,7 +2187,7 @@ class TestUrssafApprenticeAllocation:
         assert rows["726P"].delta_within_unit is True
 
     @pytest.mark.parametrize("individual_code", ["045", "068", "074", "075"])
-    def test_d_variant_does_not_redistribute_non_076_apprentice_codes(self, individual_code: str):
+    def test_d_variant_redistributes_non_076_apprentice_codes(self, individual_code: str):
         emp = self._employee(
             individual_code=individual_code,
             base_code="03",
@@ -2147,12 +2205,13 @@ class TestUrssafApprenticeAllocation:
         )
 
         rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
-        assert rows["726D"].individual_amount == Decimal("60.00")
-        assert rows["726D"].delta == Decimal("-32.97")
-        assert rows["100D"].mapping_status == "manquant_individuel"
-        assert rows["100D"].individual_amount is None
+        assert rows["726D"].individual_amount == Decimal("27.03")
+        assert rows["726D"].delta == Decimal("0.00")
+        assert rows["100D"].mapping_status == "rattachable"
+        assert rows["100D"].individual_amount == Decimal("32.97")
+        assert rows["100D"].delta == Decimal("0.00")
         assert rows["726D"].employees[0].individual_codes == [individual_code]
-        assert rows["100D"].employees == []
+        assert rows["100D"].employees[0].individual_codes == [individual_code]
 
     def test_valid_and_missing_threshold_context_share_same_rows_without_row_wide_refusal(self):
         valid_emp = self._employee(
@@ -2263,7 +2322,7 @@ class TestUrssafApprenticeAllocation:
         assert rows["726P"].delta == Decimal("0.00")
         assert rows["100P"].delta == Decimal("0.00")
 
-    def test_pre_split_apprentice_rows_stay_fully_in_726_on_d_side(self):
+    def test_pre_split_apprentice_rows_stay_split_on_d_side(self):
         emp = _emp(
             _r("S21.G00.30.001", "1", 10),
             _r("S21.G00.30.002", "FROISSY", 11),
@@ -2291,10 +2350,11 @@ class TestUrssafApprenticeAllocation:
         )
 
         rows = {b.mapped_code: b for b in urssaf.urssaf_code_breakdowns if b.ctp_code in {"100", "726"}}
-        assert rows["726D"].individual_amount == Decimal("24.90")
-        assert rows["726D"].delta == Decimal("-6.49")
-        assert rows["100D"].mapping_status == "manquant_individuel"
-        assert rows["100D"].individual_amount is None
+        assert rows["726D"].individual_amount == Decimal("18.41")
+        assert rows["726D"].delta == Decimal("0.00")
+        assert rows["100D"].mapping_status == "rattachable"
+        assert rows["100D"].individual_amount == Decimal("6.49")
+        assert rows["100D"].delta == Decimal("0.00")
 
 
 # ---------------------------------------------------------------------------
@@ -2570,12 +2630,71 @@ class TestNewMappingRuntime:
     def test_ctp_635_maps_to_907(self):
         emp = self._employee(
             *self._s78_with_s81("907", "48.00", base_code="03"),
+            contract_nature="01",
         )
         urssaf = self._get_urssaf(self._est_with_ctp("635", "48.00", employees=[emp]))
         b = urssaf.urssaf_code_breakdowns[0]
         assert b.ctp_code == "635"
         assert b.mapping_status == "rattachable"
         assert b.individual_amount == Decimal("48.00")
+
+    def test_ctp_430_maps_to_102_and_excludes_mandataire(self):
+        emp_regular = self._employee(
+            *self._s78_with_s81("102", "57.00", base_code="03", start_line=20),
+            nom="REGULAR",
+            contract_nature="01",
+        )
+        emp_apprentice = self._employee(
+            *self._s78_with_s81("102", "21.24", base_code="03", start_line=40),
+            nom="APPRENTI",
+            empno="2",
+            contract_nature="02",
+        )
+        emp_mandataire = self._employee(
+            *self._s78_with_s81("102", "11.88", base_code="03", start_line=60),
+            nom="MANDATAIRE",
+            empno="3",
+            contract_nature="80",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp(
+            "430",
+            "78.25",
+            employees=[emp_regular, emp_apprentice, emp_mandataire],
+        ))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "430"
+        assert b.mapping_status == "rattachable"
+        assert b.individual_amount == Decimal("78.24")
+        assert b.delta == Decimal("0.01")
+
+    def test_ctp_635_excludes_mandataire(self):
+        emp_regular = self._employee(
+            *self._s78_with_s81("907", "190.00", base_code="03", start_line=20),
+            nom="REGULAR",
+            contract_nature="01",
+        )
+        emp_apprentice = self._employee(
+            *self._s78_with_s81("907", "70.79", base_code="03", start_line=40),
+            nom="APPRENTI",
+            empno="2",
+            contract_nature="02",
+        )
+        emp_mandataire = self._employee(
+            *self._s78_with_s81("907", "39.60", base_code="03", start_line=60),
+            nom="MANDATAIRE",
+            empno="3",
+            contract_nature="80",
+        )
+        urssaf = self._get_urssaf(self._est_with_ctp(
+            "635",
+            "260.82",
+            employees=[emp_regular, emp_apprentice, emp_mandataire],
+        ))
+        b = urssaf.urssaf_code_breakdowns[0]
+        assert b.ctp_code == "635"
+        assert b.mapping_status == "rattachable"
+        assert b.individual_amount == Decimal("260.79")
+        assert b.delta == Decimal("0.03")
 
     # ---- CTP 003 → 114 (03) -----------------------------------------------
 
@@ -2949,9 +3068,9 @@ class TestURSSAFReferenceRates:
             _r("S21.G00.22.005", "131.70", 4),
             _r("S21.G00.23.001", "100", 5),
             _r("S21.G00.23.002", "920", 6),
-            _r("S21.G00.23.003", "13.17", 7),
+            _r("S21.G00.23.003", "0.71", 7),
             _r("S21.G00.23.004", "1000.00", 8),
-            _r("S21.G00.23.005", "131.70", 9),
+            _r("S21.G00.23.005", "138.80", 9),
         )
         cc = compute_contribution_comparisons(est, reference_date=dt.date(2025, 1, 1))
         urssaf = [i for i in cc.items if i.family == "urssaf"][0]
@@ -2959,7 +3078,7 @@ class TestURSSAFReferenceRates:
 
         assert detail.mapped_code == "100D"
         assert detail.expected_rate == Decimal("13.17")
-        assert detail.computed_amount == Decimal("131.70")
+        assert detail.computed_amount == Decimal("138.80")
         assert detail.status == "ok"
         assert detail.rate_mismatch is False
         assert detail.amount_mismatch is False
@@ -2972,9 +3091,9 @@ class TestURSSAFReferenceRates:
             _r("S21.G00.22.005", "132.60", 4),
             _r("S21.G00.23.001", "100", 5),
             _r("S21.G00.23.002", "920", 6),
-            _r("S21.G00.23.003", "13.26", 7),
+            _r("S21.G00.23.003", "0.71", 7),
             _r("S21.G00.23.004", "1000.00", 8),
-            _r("S21.G00.23.005", "132.60", 9),
+            _r("S21.G00.23.005", "139.70", 9),
         )
         cc = compute_contribution_comparisons(est, reference_date=dt.date(2026, 1, 1))
         detail = [i for i in cc.items if i.family == "urssaf"][0].details[0]
@@ -3055,9 +3174,9 @@ class TestURSSAFReferenceRates:
             _r("S21.G00.22.005", "131.70", 4),
             _r("S21.G00.23.001", "100", 5),
             _r("S21.G00.23.002", "920", 6),
-            _r("S21.G00.23.003", "13.17", 7),
+            _r("S21.G00.23.003", "0.71", 7),
             _r("S21.G00.23.004", "1000.00", 8),
-            _r("S21.G00.23.005", "131.70", 9),
+            _r("S21.G00.23.005", "138.80", 9),
         )
         cc = compute_contribution_comparisons(est, reference_date=dt.date(2025, 1, 1))
         data = cc.model_dump(mode="json")
@@ -3095,9 +3214,9 @@ class TestUrssafAmountSourceRollup:
     @pytest.mark.parametrize(
         ("ctp_code", "expected_declared_amount"),
         [
-            ("100", Decimal("142.60")),
-            ("726", Decimal("138.60")),
-            ("863", Decimal("220.60")),
+            ("100", Decimal("149.70")),
+            ("726", Decimal("145.70")),
+            ("863", Decimal("227.70")),
         ],
     )
     @pytest.mark.parametrize("declared_first", [True, False])
