@@ -20,7 +20,7 @@ import resend
 
 from fastapi import FastAPI, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.staticfiles import StaticFiles
 
 from dsn_extractor.extractors import extract
@@ -30,6 +30,14 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 FEEDBACK_TO_EMAIL = os.getenv("FEEDBACK_TO_EMAIL", "clement.rog.ext@linc.fr")
 FEEDBACK_FROM_EMAIL = os.getenv("FEEDBACK_FROM_EMAIL", "DSN Reader <onboarding@resend.dev>")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# When the app is fronted by a reverse proxy that serves it under a path prefix
+# (e.g. linc.fr/ressources/controle-dsn/simulateur), set BASE_PATH to that prefix.
+# Empty means root-mounted (current Koyeb prod URL behavior).
+_BASE_PATH_RAW = os.getenv("BASE_PATH", "").strip().rstrip("/")
+if _BASE_PATH_RAW and not _BASE_PATH_RAW.startswith("/"):
+    _BASE_PATH_RAW = "/" + _BASE_PATH_RAW
+BASE_PATH = _BASE_PATH_RAW  # "" or "/some/prefix" (no trailing slash)
 
 STATIC_DIR = pathlib.Path(__file__).resolve().parent / "static"
 logger = logging.getLogger(__name__)
@@ -218,22 +226,36 @@ def _send_feedback_email(
         raise RuntimeError("L'envoi du retour a échoué.") from exc
 
 
-@app.get("/health")
+def _render_index_html() -> str:
+    text = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    return text.replace("{{BASE_PATH}}", BASE_PATH)
+
+
+@app.get(f"{BASE_PATH}/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/", response_class=FileResponse)
-def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
+@app.get(f"{BASE_PATH}/", response_class=HTMLResponse)
+def index() -> HTMLResponse:
+    return HTMLResponse(_render_index_html())
 
 
-@app.get("/favicon.ico", response_class=FileResponse)
+if BASE_PATH:
+    # Also serve the index without a trailing slash so hitting
+    # "/ressources/controle-dsn/simulateur" works without relying on
+    # FastAPI's redirect-slashes behavior going through the reverse proxy.
+    @app.get(BASE_PATH, response_class=HTMLResponse)
+    def index_no_slash() -> HTMLResponse:
+        return HTMLResponse(_render_index_html())
+
+
+@app.get(f"{BASE_PATH}/favicon.ico", response_class=FileResponse)
 def favicon() -> FileResponse:
     return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
 
 
-@app.post("/api/extract")
+@app.post(f"{BASE_PATH}/api/extract")
 async def api_extract(file: UploadFile) -> JSONResponse:
     # 1. Extension check
     filename = file.filename or ""
@@ -266,7 +288,7 @@ async def api_extract(file: UploadFile) -> JSONResponse:
     return JSONResponse(result.model_dump(mode="json"))
 
 
-@app.post("/api/feedback")
+@app.post(f"{BASE_PATH}/api/feedback")
 async def api_feedback(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -313,4 +335,4 @@ async def api_feedback(request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok", "id": result.get("id")})
 
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount(f"{BASE_PATH}/static", StaticFiles(directory=STATIC_DIR), name="static")

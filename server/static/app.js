@@ -1,6 +1,9 @@
 (function () {
   "use strict";
 
+  // Injected by server/app.py into index.html. Empty string when served root-mounted.
+  var BASE_PATH = (typeof window !== "undefined" && window.BASE_PATH) || "";
+
   // ── Enum labels (mirrors dsn_extractor/enums.py) ─────────
   var RETIREMENT_LABELS = {
     "01": "Cadre",
@@ -516,7 +519,7 @@
     setState({ feedbackSubmitting: true });
 
     try {
-      var response = await fetch("/api/feedback", {
+      var response = await fetch(BASE_PATH + "/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1879,7 +1882,7 @@
     form.append("file", file);
 
     try {
-      var res = await fetch("/api/extract", { method: "POST", body: form });
+      var res = await fetch(BASE_PATH + "/api/extract", { method: "POST", body: form });
       var json = await res.json();
 
       if (!res.ok) {

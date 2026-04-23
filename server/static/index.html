@@ -5,16 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Contr&#244;le DSN &mdash; Linc</title>
   <meta name="description" content="D&#233;posez un fichier DSN pour rep&#233;rer les &#233;carts de cotisations et contr&#244;ler votre d&#233;claration. Outil gratuit propos&#233; par Linc.">
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="{{BASE_PATH}}/static/favicon.svg" type="image/svg+xml">
   <script>
     // Light theme is the only theme — force it before first paint
     document.documentElement.setAttribute("data-theme", "light");
+    // Injected at serve time by server/app.py — read by app.js to prefix API calls
+    window.BASE_PATH = "{{BASE_PATH}}";
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/app.js" defer></script>
+  <link rel="stylesheet" href="{{BASE_PATH}}/static/style.css">
+  <script src="{{BASE_PATH}}/static/app.js" defer></script>
 </head>
 <body data-state="empty">
 
@@ -368,7 +370,7 @@
   <footer class="site-footer">
     <div class="site-footer__inner">
       <a class="site-footer__brand" href="https://www.linc.fr?utm_source=dsn-reader&amp;utm_medium=tool&amp;utm_campaign=beta-footer" target="_blank" rel="noreferrer">
-        <img class="site-footer__logo" src="/static/logo-linc.svg" alt="Linc" width="60" height="24">
+        <img class="site-footer__logo" src="{{BASE_PATH}}/static/logo-linc.svg" alt="Linc" width="60" height="24">
       </a>
       <nav class="site-footer__nav">
         <a class="site-footer__nav-link" href="https://www.linc.fr/ressources/rgdu/simulateur?utm_source=dsn-reader&amp;utm_medium=tool&amp;utm_campaign=beta-footer&amp;utm_content=footer-rgdu" target="_blank" rel="noreferrer">Contr&#244;le RGDU</a>
