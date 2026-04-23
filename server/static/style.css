@@ -212,18 +212,58 @@ body[data-state="error"] #error-screen {
   margin-bottom: var(--sp-5);
 }
 
+.empty-intro__features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  max-width: 48ch;
+}
+
+.empty-intro__features li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.empty-intro__features li svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-accent);
+}
+
+.empty-intro__features strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
 .empty-intro__points {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-3);
+  align-items: center;
 }
 
 .empty-intro__points p {
+  margin: 0;
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-surface) 78%, transparent);
   color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.empty-intro__privacy {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--color-text-muted, var(--color-text-secondary)) !important;
+  padding-left: 0 !important;
 }
 
 .dropzone {
