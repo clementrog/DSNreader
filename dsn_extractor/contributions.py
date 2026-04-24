@@ -943,21 +943,27 @@ def _build_urssaf_code_breakdowns(
             _emit_non_rattache("missing_runtime_condition")
             continue
 
-        # Phase 3b: Sign condition check — uses only the raw declared amount
-        # from S21.G00.23.005, never a recomputed fallback. For reduction
-        # rules flagged as display_absolute, the sign check is relaxed to an
-        # abs-value sanity check: any non-zero raw_declared passes, because
-        # these CTPs are compared and displayed on absolute magnitudes by
-        # product decision (the raw sign is not a business constraint).
+        # Phase 3b: Sign condition check. Prefer the raw declared amount from
+        # S21.G00.23.005 when present; otherwise use the chosen CTP amount.
+        # This matters for regularization CTPs such as 669, where the DSN can
+        # carry the business amount in S21.G00.23.004 with a 100% reference
+        # rate instead of S21.G00.23.005.
+        #
+        # For reduction rules flagged as display_absolute, the declaration-side
+        # sign check is relaxed to an abs-value sanity check: any non-zero
+        # amount passes, because these rows are compared and displayed on
+        # absolute magnitudes by product decision.
         if rule.conditions.sign_condition is not None:
-            raw_declared = raw_declared_by_row.get(row_key)
-            if raw_declared is None or raw_declared == 0:
+            sign_amount = raw_declared_by_row.get(row_key)
+            if sign_amount is None:
+                sign_amount = declared
+            if sign_amount is None or sign_amount == 0:
                 _emit_non_rattache("missing_sign_context")
                 continue
             if not rule.display_absolute:
                 sign_ok = (
-                    (rule.conditions.sign_condition == "negative" and raw_declared < 0)
-                    or (rule.conditions.sign_condition == "positive" and raw_declared > 0)
+                    (rule.conditions.sign_condition == "negative" and sign_amount < 0)
+                    or (rule.conditions.sign_condition == "positive" and sign_amount > 0)
                 )
                 if not sign_ok:
                     _emit_non_rattache("sign_condition_not_met")
@@ -1032,6 +1038,23 @@ def _build_urssaf_code_breakdowns(
                         continue
                     included_rows.append(row)
                     applied_codes.add(s81_code)
+
+        if rule.conditions.sign_condition is not None:
+            sign_filtered_rows: list[EmployeeS81Contribution] = []
+            for row in included_rows:
+                if row.amount is None:
+                    sign_filtered_rows.append(row)
+                    continue
+                if rule.conditions.sign_condition == "negative" and row.amount < 0:
+                    sign_filtered_rows.append(row)
+                elif rule.conditions.sign_condition == "positive" and row.amount > 0:
+                    sign_filtered_rows.append(row)
+                else:
+                    excluded_entries.append({
+                        "code": row.individual_code,
+                        "reason": "wrong_sign",
+                    })
+            included_rows = sign_filtered_rows
 
         # Phase 4.5: Employee contract nature filtering.
         status_filter_missing_context = False

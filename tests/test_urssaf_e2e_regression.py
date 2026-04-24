@@ -31,8 +31,11 @@ The seven behaviors asserted in a single test body:
 4. 100D is rattachable even without .005 and carries a reconstructed amount.
 5. One row per employee under 100P; individual_codes lists contributing codes.
 6. 668 rattachable with display_absolute=True and matching S81 018,
-   regardless of declared sign (relaxed gate for reduction rules).
-7. display_absolute is True for 668/003/004 and False for 669.
+   regardless of declared sign (relaxed gate for reduction rules), while
+   excluding positive S81 018 regularization rows.
+7. 669 attaches positive S81 018 regularization rows even when its CTP amount
+   is reconstructed from S23.004 at 100%.
+8. display_absolute is True for 668/003/004 and False for 669.
 """
 
 from __future__ import annotations
@@ -102,6 +105,8 @@ def _build_fixture_establishment() -> EstablishmentBlock:
             ("100", "7.07", "03"),
             # 668 (920, base 03): -120.00 signed per DSN S81 convention
             ("018", "-120.00", "03"),
+            # 669 regularization: positive S81 018 must not be absorbed by 668.
+            ("018", "50.00", "03"),
             # 003 (920, base 03): -323.85 signed
             ("114", "-323.85", "03"),
             # 004 (920, base 03): -153.06 signed
@@ -158,10 +163,10 @@ def _build_fixture_establishment() -> EstablishmentBlock:
         _r("S21.G00.23.002", "920", 61),
         _r("S21.G00.23.005", "151.00", 62),
 
-        # CTP 669 qualifier 920 — declared +50.00 (sign=positive, default rule)
+        # CTP 669 qualifier 920 — no .005, reconstructed from .004 × 100%.
         _r("S21.G00.23.001", "669", 70),
         _r("S21.G00.23.002", "920", 71),
-        _r("S21.G00.23.005", "50.00", 72),
+        _r("S21.G00.23.004", "50.00", 72),
     ]
     est = EstablishmentBlock(records=est_records)
     est.employee_blocks = [alice, bob]
@@ -238,7 +243,19 @@ def test_urssaf_seven_issues_regression():
     # Business (abs) tolerance check: |120| vs |-120| = 0 → within_unit.
     assert b668.delta_within_unit is True
 
-    # ---- Behavior 7: display_absolute by CTP ----------------------------
+    # ---- Behavior 7: 669 uses positive 018 regularization only ----------
+    row_669 = [b for b in bds if b.ctp_code == "669"]
+    assert len(row_669) == 1
+    b669 = row_669[0]
+    assert b669.mapping_status == "rattachable"
+    assert b669.declared_amount == Decimal("50.00")
+    assert b669.amount_source == "reconstructed"
+    assert b669.individual_amount == Decimal("50.00")
+    assert b669.delta == Decimal("0.00")
+    assert b669.delta_within_unit is True
+    assert b669.display_absolute is False
+
+    # ---- Behavior 8: display_absolute by CTP ----------------------------
     def _flag(ctp: str) -> bool:
         row = [b for b in bds if b.ctp_code == ctp]
         assert row, f"expected a row for CTP {ctp}"

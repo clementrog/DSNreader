@@ -542,6 +542,13 @@ Modèle d'activation : `enabled` et `guarded` sont actifs à l'exécution ; `exp
 | 901 | VERSEMENT MOBILITE ADDITIONNEL | 1:1 | 082 | — | expert_pending | commune-scoped matching requis |
 | 971 | CFP ENTREPRISE >= 11 SALARIES | 1:1 | 128 | — | expert_pending | seuil SMIC requis |
 
+Règle de signe pour `668` / `669` :
+
+- côté salarié, le code individuel `018` est partagé par la réduction courante et sa régularisation ;
+- `668` ne doit rattacher que les lignes `S21.G00.81.001 = 018` dont le montant `S21.G00.81.004` est négatif ;
+- `669` ne doit rattacher que les lignes `S21.G00.81.001 = 018` dont le montant `S21.G00.81.004` est positif ;
+- pour `669`, quand `S21.G00.23.005` est absent mais que le format CTP permet de reconstruire le montant depuis `S21.G00.23.004 × taux de référence` (`100%`), ce montant reconstruit peut servir au contrôle de signe et au rapprochement.
+
 #### Journal des décisions
 
 - **2026-04-09** — Ouverture de la gate. CTP `027` verrouillé comme premier cas rattachable sur la base de "DIALOGUE SOCIAL 100" dans `docs/13. DSN/13.1-cotisations-dsn.publicodes` lignes 235-247 (code individuel `100`, OPS `entreprise . urssaf . SIRET`, montant `salarié . cotisations . contribution au dialogue social`). Correspondance locale confirmée par `dsn_extractor/data/ctp_rate_reference.tsv:28` (CTP `027`, libellé "CONTRIBUTION AU DIALOGUE SOCIAL", taux 0.016%, effective 01/01/2015). La référence à `8270` dans `roadmap.md` était une erreur et a été corrigée vers `027` dans le même commit.

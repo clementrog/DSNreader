@@ -2763,8 +2763,8 @@ class TestNewMappingRuntime:
         b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "669"][0]
         assert b.mapping_status == "rattachable"
 
-    def test_ctp_669_computed_only_refuses_safely(self):
-        """CTP 669 with only base+rate (no S21.G00.23.005) must NOT infer sign."""
+    def test_ctp_669_computed_only_attaches_when_reconstructed_positive(self):
+        """CTP 669 can use its reconstructed 100% amount when .005 is absent."""
         emp = self._employee(
             *self._s78_with_s81("018", "50.00", base_code="03"),
         )
@@ -2778,13 +2778,15 @@ class TestNewMappingRuntime:
             _r("S21.G00.23.002", "920", 6),
             _r("S21.G00.23.003", "100.00", 7),
             _r("S21.G00.23.004", "50.00", 8),
-            # No S21.G00.23.005 — forces computed_only path
+            # No S21.G00.23.005 — 669 is reconstructed from .004 × 100%.
             employees=[emp],
         )
         urssaf = self._get_urssaf(est)
         b = [x for x in urssaf.urssaf_code_breakdowns if x.ctp_code == "669"][0]
-        assert b.mapping_status == "non_rattache"
-        assert b.mapping_reason == "missing_sign_context"
+        assert b.mapping_status == "rattachable"
+        assert b.declared_amount == Decimal("50.00")
+        assert b.amount_source == "reconstructed"
+        assert b.individual_amount == Decimal("50.00")
 
     def test_ctp_669_negative_amount_refused(self):
         emp = self._employee(
