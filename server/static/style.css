@@ -1902,6 +1902,48 @@ body[data-state="error"] #error-screen {
   font-size: var(--fs-sm);
 }
 
+/* ── Linc promo banner ───────────────────────────────────── */
+
+.promo-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-4);
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 18%, transparent);
+  color: var(--color-text-primary);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.promo-banner:hover {
+  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface));
+}
+
+.promo-banner__text {
+  color: var(--color-text-secondary);
+}
+
+.promo-banner__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.promo-banner__cta svg {
+  transition: transform 0.15s;
+}
+
+.promo-banner:hover .promo-banner__cta svg {
+  transform: translateX(2px);
+}
+
 /* ── Site footer ─────────────────────────────────────────── */
 
 .site-footer {
@@ -2197,6 +2239,13 @@ body[data-state="error"] #error-screen {
 
   .status-strip {
     flex-wrap: wrap;
+  }
+
+  .promo-banner {
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+    font-size: var(--fs-xs);
+    text-align: center;
   }
 
   .site-footer__inner {
