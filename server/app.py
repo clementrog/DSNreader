@@ -226,9 +226,18 @@ def _send_feedback_email(
         raise RuntimeError("L'envoi du retour a échoué.") from exc
 
 
+def _asset_version() -> str:
+    css = STATIC_DIR / "style.css"
+    js = STATIC_DIR / "app.js"
+    mtime = max(css.stat().st_mtime, js.stat().st_mtime)
+    return str(int(mtime))
+
+
 def _render_index_html() -> str:
     text = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    return text.replace("{{BASE_PATH}}", BASE_PATH)
+    text = text.replace("{{BASE_PATH}}", BASE_PATH)
+    text = text.replace("{{ASSET_VERSION}}", _asset_version())
+    return text
 
 
 @app.get(f"{BASE_PATH}/health")

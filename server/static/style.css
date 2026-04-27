@@ -1911,9 +1911,9 @@ body[data-state="error"] #error-screen {
   flex-wrap: wrap;
   gap: var(--sp-3);
   width: 100%;
-  padding: var(--sp-2) var(--sp-4);
-  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
-  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 18%, transparent);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-subtle);
   color: var(--color-text-primary);
   font-size: var(--fs-sm);
   text-decoration: none;
@@ -1921,11 +1921,11 @@ body[data-state="error"] #error-screen {
 }
 
 .promo-banner:hover {
-  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface));
+  background: var(--color-surface-hover);
 }
 
 .promo-banner__text {
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
 }
 
 .promo-banner__cta {
@@ -1938,6 +1938,10 @@ body[data-state="error"] #error-screen {
 
 .promo-banner__cta svg {
   transition: transform 0.15s;
+}
+
+.promo-banner:hover .promo-banner__cta {
+  color: var(--color-accent-hover);
 }
 
 .promo-banner:hover .promo-banner__cta svg {
