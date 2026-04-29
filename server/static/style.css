@@ -1603,6 +1603,10 @@ body[data-state="error"] #error-screen {
   background: color-mix(in srgb, var(--color-surface-inset) 55%, var(--color-surface));
 }
 
+.contrib-details-wrap .data-table .urssaf-ctp-expansion > td[colspan="7"] {
+  padding: 0;
+}
+
 /* Expansion content sits flush inside the colspan td so its sub-table(s)
  * line up vertically with the parent CTP table columns. The inset td
  * background (see .urssaf-ctp-expansion > td) gives the panel identity —
@@ -1673,12 +1677,31 @@ body[data-state="error"] #error-screen {
   padding-right: 0;
 }
 
+.urssaf-employee-name {
+  color: var(--color-text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .urssaf-employee-amount {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--sp-2);
+  position: relative;
+  display: block;
   width: 100%;
+  text-align: right;
+}
+
+.urssaf-employee-amount .urssaf-inline-info {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.urssaf-employee-amount__value {
+  display: inline-block;
+  text-align: right;
 }
 
 .urssaf-inline-info {
@@ -1691,6 +1714,21 @@ body[data-state="error"] #error-screen {
   color: var(--color-text-tertiary);
   cursor: help;
   flex-shrink: 0;
+}
+
+.urssaf-ctp-expansion:has(.urssaf-inline-info:hover),
+.urssaf-ctp-expansion:has(.urssaf-inline-info:focus-visible),
+.urssaf-employees-table tr:has(.urssaf-inline-info:hover),
+.urssaf-employees-table tr:has(.urssaf-inline-info:focus-visible),
+.urssaf-employee-amount:has(.urssaf-inline-info:hover),
+.urssaf-employee-amount:has(.urssaf-inline-info:focus-visible) {
+  position: relative;
+  z-index: 2147483646;
+}
+
+.urssaf-inline-info:hover,
+.urssaf-inline-info:focus-visible {
+  z-index: 2147483646;
 }
 
 .urssaf-inline-info::after {
@@ -1715,7 +1753,7 @@ body[data-state="error"] #error-screen {
   pointer-events: none;
   transform: translateY(2px);
   transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s ease;
-  z-index: 9999;
+  z-index: 2147483647;
 }
 
 .urssaf-inline-info:hover::after,

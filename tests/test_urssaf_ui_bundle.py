@@ -96,6 +96,20 @@ def test_all_four_urssaf_status_pill_variants_present():
         assert variant in text, f"Missing URSSAF status pill variant: {variant}"
 
 
+def test_urssaf_ctp_issue_drives_family_and_card_status():
+    """A top-level URSSAF item can be `ok` while one CTP drill-down has a
+    material delta. The UI status must use the CTP-level issue so the family
+    pill/card badge turns red instead of staying green."""
+    text = _app_js()
+    assert "function hasMaterialUrssafCtpIssue" in text
+    assert 'item.family !== "urssaf"' in text
+    assert 'b.mapping_status !== "rattachable"' in text
+    assert "b.delta_within_unit" in text
+    assert 'if (hasMaterialUrssafCtpIssue(item)) return "ecart";' in text
+    assert 'getContributionDisplayStatus(item) === "ecart"' in text
+    assert 'getStatusBadgeClass(displayStatus)' in text
+
+
 def test_delta_header_renamed():
     """`Delta code` / `DELTA CODE` header literal is gone; `Delta` is the
     canonical header for the per-CTP delta column."""
@@ -144,6 +158,26 @@ def test_col_num_alignment_class_applied():
         "`.col-num` CSS rule must exist in style.css (right-align + "
         "tabular-nums)."
     )
+
+
+def test_employee_breakdown_starts_under_parent_individual_column():
+    """Expanded salarié rows reuse the parent grid so the child `Individuel`
+    header and amounts sit on the same vertical rail as the parent CTP
+    `Individuel` header and amounts."""
+    text = _app_js()
+    css = _style_css()
+    assert "'<td></td>'" in text
+    assert "'<td colspan=\"2\" class=\"urssaf-employee-name\">'" in text
+    assert "'<td class=\"col-num\"><span class=\"urssaf-employee-amount\">'" in text
+    assert "urssaf-employee-amount__value" in text
+    assert "'<th colspan=\"2\">Salari\\u00e9</th>'" in text
+    assert "'<th class=\"col-num\">Individuel</th>'" in text
+    assert '"Libellé" + "Déclaré"' in text
+    assert ".urssaf-employees-table" in css
+    assert ".urssaf-employee-name" in css
+    assert ".urssaf-employee-amount__value" in css
+    assert "text-overflow: ellipsis;" in css
+    assert '.urssaf-ctp-expansion > td[colspan="7"]' in css
 
 
 def test_hidden_ok_hint_present_at_bottom():
@@ -324,16 +358,25 @@ def test_employee_details_hide_inline_dsn_columns_and_use_info_icon():
     assert "Codes S81" in app and "Lignes DSN" in app, (
         "The info icon tooltip should still carry S81 and DSN-line context."
     )
-    assert "colspan=\"3\">Salari" in app, (
-        "The employee-name cell should span the hidden code/declared "
-        "alignment space so "
-        "the amount stays under the parent `Individuel` column."
+    assert 'colspan="2" class="urssaf-employee-name"' in app and "urssaf-employee-amount__value" in app, (
+        "The employee drill-down should reuse the parent grid so the "
+        "salarié amount stays under the parent `Individuel` column."
     )
     assert ".urssaf-employee-amount" in css and ".urssaf-inline-info" in css, (
         "Expected dedicated CSS for the inline amount + info icon layout."
     )
     assert ".urssaf-inline-info::after" in css, (
         "Expected an explicit hover tooltip style for the inline info icon."
+    )
+    assert "z-index: 2147483647;" in css and ":has(.urssaf-inline-info:hover)" in css, (
+        "Employee tooltips must rise above sticky headers/subheaders; the "
+        "tooltip alone is not enough because table ancestors can still stack "
+        "below those headers."
+    )
+    assert ".urssaf-inline-info:hover,\n.urssaf-inline-info:focus-visible {\n  z-index: 2147483646;\n}" in css, (
+        "Hover must not change the info icon's positioning; changing it from "
+        "absolute to relative makes the icon move under the cursor and causes "
+        "tooltip flicker."
     )
     assert ".contrib-item--expanded" in css and "overflow: visible;" in css, (
         "Expanded contribution cards must allow tooltip overflow."

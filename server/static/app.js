@@ -954,12 +954,9 @@
     var payload = getActiveContributionPayload() || {};
     var items = Array.isArray(payload.items) ? payload.items : [];
 
-    var okCount = payload.ok_count != null
-      ? payload.ok_count
-      : items.filter(function (item) { return item.status === "ok"; }).length;
-    var mismatchCount = payload.mismatch_count != null
-      ? payload.mismatch_count
-      : items.filter(function (item) { return item.status === "ecart"; }).length;
+    var displayStatuses = items.map(getContributionDisplayStatus);
+    var okCount = displayStatuses.filter(function (status) { return status === "ok"; }).length;
+    var mismatchCount = displayStatuses.filter(function (status) { return status === "ecart"; }).length;
 
     renderTrustBanner(okCount, mismatchCount);
     renderContributionTabBar(items);
@@ -1013,7 +1010,7 @@
       var tab = familyToTab[family];
       if (!tab || !meta[tab]) return;
       meta[tab].count++;
-      if (item.status === "ecart") meta[tab].ecartCount++;
+      if (getContributionDisplayStatus(item) === "ecart") meta[tab].ecartCount++;
     });
     CONTRIBUTION_TABS.forEach(function (t) {
       var m = meta[t];
@@ -1022,6 +1019,25 @@
       else m.worstStatus = "ok";
     });
     return meta;
+  }
+
+  function hasMaterialUrssafCtpIssue(item) {
+    if (!item || item.family !== "urssaf") return false;
+    var breakdowns = Array.isArray(item.urssaf_code_breakdowns) ? item.urssaf_code_breakdowns : [];
+    for (var i = 0; i < breakdowns.length; i++) {
+      var b = breakdowns[i] || {};
+      if (b.mapping_status && b.mapping_status !== "rattachable") return true;
+      if (b.delta != null) {
+        var dv = parseFloat(b.delta);
+        if (!isNaN(dv) && dv !== 0 && !b.delta_within_unit) return true;
+      }
+    }
+    return false;
+  }
+
+  function getContributionDisplayStatus(item) {
+    if (hasMaterialUrssafCtpIssue(item)) return "ecart";
+    return (item && item.status) || "non_calculable";
   }
 
   function renderContributionTabBar(items) {
@@ -1097,7 +1113,7 @@
         + '</div>';
     }
 
-    var allOk = items.every(function (item) { return item.status === "ok"; });
+    var allOk = items.every(function (item) { return getContributionDisplayStatus(item) === "ok"; });
     var hint = allOk
       ? '<div class="contrib-all-ok-hint">Tous les organismes sont conformes. Cliquez pour voir le d\u00e9tail.</div>'
       : '';
@@ -1175,7 +1191,8 @@
       || item.aggregate_vs_individual_delta
       || null;
     var deltaHtml = '';
-    if (primaryDelta != null && item.status === 'ecart') {
+    var displayStatus = getContributionDisplayStatus(item);
+    if (primaryDelta != null && displayStatus === 'ecart') {
       var deltaVal = parseFloat(primaryDelta);
       if (!isNaN(deltaVal) && deltaVal !== 0) {
         deltaHtml = '<span class="contrib-item__delta">'
@@ -1186,7 +1203,7 @@
 
     return '<article class="contrib-item' + (expanded ? ' contrib-item--expanded' : '') + '"'
       + ' data-item-id="' + escapeHtml(itemKey) + '"'
-      + ' data-status="' + (item.status || 'non_calculable') + '"'
+      + ' data-status="' + displayStatus + '"'
       + ' data-default-expanded="' + (defaultExpanded ? 'true' : 'false') + '">'
       + '<div class="contrib-summary" data-action="toggle-detail"' + titleAttr + '>'
       + '<div class="contrib-summary__left">'
@@ -1201,8 +1218,8 @@
       + '<div class="contrib-item__header-right">'
       + '<div class="contrib-summary__metrics">' + renderContributionSummaryMetrics(item) + '</div>'
       + deltaHtml
-      + '<span class="' + getStatusBadgeClass(item.status) + '">'
-      + escapeHtml(formatStatusLabel(item.status))
+      + '<span class="' + getStatusBadgeClass(displayStatus) + '">'
+      + escapeHtml(formatStatusLabel(displayStatus))
       + '</span>'
       + '</div>'
       + '</div>'
@@ -1497,11 +1514,13 @@
         + '</span>';
       return '<tr>'
         + '<td></td>'
-        + '<td colspan="3">' + escapeHtml(emp.employee_name || NOT_AVAILABLE) + '</td>'
+        + '<td></td>'
+        + '<td colspan="2" class="urssaf-employee-name">' + escapeHtml(emp.employee_name || NOT_AVAILABLE) + '</td>'
         + '<td class="col-num"><span class="urssaf-employee-amount">'
         + infoHtml
-        + '<span>' + escapeHtml(formatAmount(_displayedAmount(breakdown, emp.amount))) + '</span>'
+        + '<span class="urssaf-employee-amount__value">' + escapeHtml(formatAmount(_displayedAmount(breakdown, emp.amount))) + '</span>'
         + '</span></td>'
+        + '<td></td>'
         + '<td></td>'
         + '</tr>';
     }).join("");
@@ -1521,21 +1540,17 @@
         + '</div>';
     }
 
-    // Column widths mirror the parent CTP table's colgroup so the sub-table
-    // reads as a vertical extension of the main grid:
-    //   hidden code       ← parent's code (56)
-    //   Salarié           ← parent's libellé (flex) + Déclaré (132)
-    //   Individuel        ← parent's Individuel (132)
-    //   spacer            ← parent's Delta (96) + Rattachement (210) = 306
-    // The leading 32px col absorbs the parent's chevron column so the first
-    // visible column (Salarié) lines up with the parent Code column.
+    // Mirror the parent CTP grid exactly. Employee names use the parent
+    // "Libellé" + "Déclaré" space so long names do not collide with the info
+    // icon, while employee amounts stay in the parent "Individuel" column.
     var employeesColgroup = '<colgroup>'
       + '<col style="width: 32px;">'
       + '<col style="width: 56px;">'
       + '<col>'
       + '<col style="width: 132px;">'
       + '<col style="width: 132px;">'
-      + '<col style="width: 306px;">'
+      + '<col style="width: 96px;">'
+      + '<col style="width: 210px;">'
       + '</colgroup>';
     return '<div class="urssaf-sub-section">'
       + '<h5 class="urssaf-sub-section__title">Salari\u00e9s (' + employees.length + ')' + appliedCodes + '</h5>'
@@ -1544,8 +1559,10 @@
       + employeesColgroup
       + '<thead><tr>'
       + '<th></th>'
-      + '<th colspan="3">Salari\u00e9</th>'
+      + '<th></th>'
+      + '<th colspan="2">Salari\u00e9</th>'
       + '<th class="col-num">Individuel</th>'
+      + '<th></th>'
       + '<th></th>'
       + '</tr></thead>'
       + '<tbody>' + rowsHtml + '</tbody>'
