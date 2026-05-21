@@ -21,6 +21,21 @@
   <meta name="twitter:description" content="T&#233;l&#233;versez un fichier DSN pour comparer cotisations d&#233;clar&#233;es et th&#233;oriques, rep&#233;rer les &#233;carts et pr&#233;parer l&rsquo;envoi. Outil gratuit propos&#233; par Linc.">
   <meta name="twitter:image" content="https://www.linc.fr/og-images/controle-dsn/simulateur.png">
 
+  <!-- Google tag (gtag.js) — GA4 property G-957XZQZRDB (same property as www.linc.fr). This app
+       is served under www.linc.fr via the path-mode rewrite, so hits land in the marketing
+       property with hostname www.linc.fr + page_path /ressources/controle-dsn/simulateur.
+       Mirrors linc-next-site/src/components/Analytics.tsx.
+       NOTE: fires on load, NOT gated on the cookie banner — this matches the marketing site,
+       which today fires GA unconditionally. If consent-gating is adopted, do it site-wide
+       (marketing Analytics.tsx + here, keyed on the shared `linc_cookie_consent` localStorage). -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-957XZQZRDB"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-957XZQZRDB', { page_path: window.location.pathname });
+  </script>
+
   <link rel="icon" href="{{BASE_PATH}}/static/favicon.svg" type="image/svg+xml">
   <script>
     // Light theme is the only theme — force it before first paint

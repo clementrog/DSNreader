@@ -245,7 +245,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get(f"{BASE_PATH}/", response_class=HTMLResponse)
+@app.api_route(f"{BASE_PATH}/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return HTMLResponse(_render_index_html())
 
@@ -254,7 +254,7 @@ if BASE_PATH:
     # Also serve the index without a trailing slash so hitting
     # "/ressources/controle-dsn/simulateur" works without relying on
     # FastAPI's redirect-slashes behavior going through the reverse proxy.
-    @app.get(BASE_PATH, response_class=HTMLResponse)
+    @app.api_route(BASE_PATH, methods=["GET", "HEAD"], response_class=HTMLResponse)
     def index_no_slash() -> HTMLResponse:
         return HTMLResponse(_render_index_html())
 
