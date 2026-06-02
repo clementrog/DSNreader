@@ -124,6 +124,16 @@ def _extract_company(file_level_records: list[DSNRecord]) -> Company:
     )
 
 
+def _is_siren(value: str | None) -> bool:
+    """A SIREN is exactly 9 digits."""
+    return bool(value) and len(value) == 9 and value.isdigit()
+
+
+def _is_nic(value: str | None) -> bool:
+    """A NIC is exactly 5 digits."""
+    return bool(value) and len(value) == 5 and value.isdigit()
+
+
 def _extract_establishment_identity(
     est: EstablishmentBlock,
     company_siren: str | None,
@@ -141,14 +151,17 @@ def _extract_establishment_identity(
         name = normalize_empty(_find_value(est.records, "S21.G00.11.008") or "")
         ccn_code = normalize_empty(_find_value(est.records, "S21.G00.11.022") or "")
     else:
-        nic = normalize_empty(_find_value(est.records, "S21.G00.06.001") or "")
+        # No établissement block — fall back to the entreprise head office.
+        # S21.G00.06.001 is the SIREN, S21.G00.06.002 is the NIC du siège.
+        # Never treat S21.G00.06.001 (the SIREN) as a NIC.
+        nic = normalize_empty(_find_value(est.records, "S21.G00.06.002") or "")
         naf_code = None
         address = None
         postal_code = None
         city = None
         name = None
         ccn_code = None
-        warnings.append("Establishment missing S21.G00.11 block, falling back to S21.G00.06")
+        warnings.append("Establishment missing S21.G00.11 block, falling back to S21.G00.06 head office")
 
     # CCN fallback from employee-level S21.G00.40.017
     if ccn_code is None:
@@ -164,7 +177,31 @@ def _extract_establishment_identity(
                 f"Conflicting employee CCN values: {sorted(employee_ccns)}"
             )
 
-    siret = company_siren + nic if (company_siren and nic) else None
+    # SIRET établissement = SIREN entreprise (S21.G00.06.001, 9 chiffres)
+    # + NIC établissement (5 chiffres). The client SIREN comes from the
+    # entreprise block, NOT from the émetteur (S10.G00.01 / company.siren):
+    # when a cabinet files for a client those SIRENs differ. Fall back to the
+    # émetteur SIREN only when S21.G00.06.001 is not a valid SIREN. Build the
+    # SIRET only when both SIREN (9 digits) and NIC (5 digits) are valid — never
+    # concatenate raw values blindly (that produced impossible 18-digit SIRETs).
+    # Prefer the parser-carried SIREN (canonical, survives multi-S11 blocks),
+    # then the establishment's own S21.G00.06.001 record (resilient to manually
+    # built blocks), and only then the émetteur SIREN.
+    entreprise_siren = normalize_empty(
+        est.enterprise_siren
+        or _find_value(est.records, "S21.G00.06.001")
+        or ""
+    )
+    siren = entreprise_siren if _is_siren(entreprise_siren) else company_siren
+    if _is_siren(siren) and _is_nic(nic):
+        siret = siren + nic
+    else:
+        siret = None
+        if siren or nic:
+            warnings.append(
+                f"Cannot build establishment SIRET: invalid SIREN/NIC "
+                f"(siren={siren!r}, nic={nic!r})"
+            )
 
     return EstablishmentIdentity(
         nic=nic,

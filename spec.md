@@ -195,7 +195,11 @@ The DSN monthly declaration metadata is carried by block `S20.G00.05`, including
 
 ## 7.2 Company
 
-Use company-identification rubrics from `S10.G00.01`.
+Use company-identification rubrics from `S10.G00.01`. **This is the émetteur
+(sender) of the file — the cabinet/software filing the DSN — NOT necessarily the
+employer.** When a cabinet files on behalf of a client these differ. UI surfaces
+that name the "entreprise/client" must use the establishment identity (§7.3),
+not this block.
 
 Mappings:
 
@@ -214,7 +218,16 @@ Use `S21.G00.11` primarily. If missing, fall back to `S21.G00.06`.
 
 Mappings:
 
-* `nic` ← `S21.G00.11.001`
+* `nic` ← `S21.G00.11.001`. If `S21.G00.11` is absent, fall back to the head
+  office NIC `S21.G00.06.002` — **never** use `S21.G00.06.001` (the SIREN) as a NIC.
+* `siret` = `siren + nic`, where `siren` ← `S21.G00.06.001` (the **client/employer**
+  SIREN, 9 digits). Fall back to the émetteur SIREN (`S10.G00.01.001`) only when
+  `S21.G00.06.001` is not a valid SIREN. Do **not** build the SIRET from the
+  émetteur SIREN by default — it produces an invalid number for cabinet-filed DSNs.
+  Build the SIRET **only** when `siren` is exactly 9 digits and `nic` is exactly
+  5 digits (both numeric); otherwise leave `siret` null and emit a warning. This
+  prevents impossible SIRETs (e.g. an 18-digit string from concatenating a SIREN
+  with itself).
 * `naf_code` ← `S21.G00.11.002`
 * `address` ← `S21.G00.11.003`
 * `postal_code` ← `S21.G00.11.004`

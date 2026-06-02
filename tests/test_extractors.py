@@ -203,6 +203,80 @@ class TestEstablishmentIdentitySingle:
         assert out.establishments[0].identity.city == "PARIS"
 
 
+class TestEstablishmentIdentityCabinetFiled:
+    """When a cabinet files the DSN for a client, the émetteur SIREN
+    (S10.G00.01) differs from the client SIREN (S21.G00.06.001). The
+    establishment identity must reflect the *client*, not the émetteur."""
+
+    TEXT = MINIMAL_HEADER + (
+        "S21.G00.06.001,'123456789'\n"  # client SIREN (9 digits), != émetteur
+        "S21.G00.06.002,'11'\n"
+        "S21.G00.11.001,'00042'\n"
+        "S21.G00.11.008,'BEN CONSULTING'\n"
+    )
+
+    def test_company_is_emetteur(self) -> None:
+        out = _extract_fixture(self.TEXT)
+        # émetteur is unchanged: SIREN 999888777 from S10.G00.01
+        assert out.company.siret == "99988877700099"
+
+    def test_identity_uses_client_siren(self) -> None:
+        out = _extract_fixture(self.TEXT)
+        assert out.establishments[0].identity.siret == "12345678900042"
+        assert out.establishments[0].identity.name == "BEN CONSULTING"
+
+
+class TestEstablishmentIdentityCabinetMultiEstablishment:
+    """A cabinet files for a client with several établissements: a single
+    S21.G00.06 (client SIREN) followed by multiple S21.G00.11. Every site must
+    use the client SIREN, not the émetteur SIREN (regression: site 2 used to get
+    `cabinet SIREN + client NIC`)."""
+
+    TEXT = (
+        MINIMAL_HEADER
+        + "S21.G00.06.001,'123456789'\n"  # client SIREN, declared once
+        + "S21.G00.06.002,'00001'\n"
+        + "S21.G00.11.001,'00042'\n"
+        + "S21.G00.11.008,'CLIENT PARIS'\n"
+        + _make_employee(name="A")
+        + "S21.G00.11.001,'00043'\n"  # second établissement, same entreprise
+        + "S21.G00.11.008,'CLIENT LYON'\n"
+        + _make_employee(name="B")
+        + FOOTER
+    )
+
+    def test_two_establishments(self) -> None:
+        out = _extract_fixture(self.TEXT)
+        assert len(out.establishments) == 2
+
+    def test_both_sites_use_client_siren(self) -> None:
+        out = _extract_fixture(self.TEXT)
+        sirets = {e.identity.name: e.identity.siret for e in out.establishments}
+        assert sirets["CLIENT PARIS"] == "12345678900042"
+        assert sirets["CLIENT LYON"] == "12345678900043"  # NOT 99988877700043
+
+
+class TestEnterpriseSirenFallback:
+    """The extractor prefers the parser-carried `enterprise_siren`, but a block
+    built without it (manual / shared caller) must still resolve the client
+    SIREN from its own S21.G00.06.001 record rather than the émetteur."""
+
+    def test_falls_back_to_records_when_field_unset(self) -> None:
+        from dsn_extractor.extractors import _extract_establishment_identity
+        from dsn_extractor.parser import DSNRecord, EstablishmentBlock
+
+        block = EstablishmentBlock(
+            records=[
+                DSNRecord("S21.G00.06.001", "123456789", 1),
+                DSNRecord("S21.G00.11.001", "00042", 2),
+            ],
+            enterprise_siren=None,  # simulate a manually-built block
+        )
+        warnings: list[str] = []
+        identity = _extract_establishment_identity(block, "999888777", [], warnings)
+        assert identity.siret == "12345678900042"  # client SIREN, not émetteur
+
+
 class TestEstablishmentIdentityMulti:
     def test_two_establishments(self, multi_establishment_text: str) -> None:
         out = _extract_fixture(multi_establishment_text)
@@ -228,18 +302,35 @@ class TestEstablishmentIdentityMulti:
 
 
 class TestEstablishmentIdentityFallback:
-    def test_fallback_to_s06(self) -> None:
+    def test_fallback_to_s06_head_office(self) -> None:
+        # No S21.G00.11 → fall back to entreprise head office:
+        # SIREN from S21.G00.06.001, NIC du siège from S21.G00.06.002.
         text = (
             MINIMAL_HEADER
-            + "S21.G00.06.001,'00099'\n"
-            + "S21.G00.06.002,'11'\n"
+            + "S21.G00.06.001,'123456789'\n"
+            + "S21.G00.06.002,'00055'\n"
             + _make_employee()
             + FOOTER
         )
         out = _extract_fixture(text)
         est = out.establishments[0]
-        assert est.identity.nic == "00099"
+        assert est.identity.nic == "00055"  # NIC du siège, NOT the SIREN
+        assert est.identity.siret == "12345678900055"
         assert any("falling back to S21.G00.06" in w for w in est.quality.warnings)
+
+    def test_fallback_real_siren_no_nic_yields_no_siret(self) -> None:
+        # P1 repro: real 9-digit SIREN, no S21.G00.11, no usable NIC.
+        # Must NOT concatenate SIREN twice into an 18-digit SIRET.
+        text = (
+            MINIMAL_HEADER
+            + "S21.G00.06.001,'123456789'\n"
+            + _make_employee()
+            + FOOTER
+        )
+        out = _extract_fixture(text)
+        est = out.establishments[0]
+        assert est.identity.siret is None
+        assert any("Cannot build establishment SIRET" in w for w in est.quality.warnings)
 
     def test_ccn_fallback_from_uniform_employees(self) -> None:
         text = (

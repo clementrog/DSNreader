@@ -1,6 +1,6 @@
 # DSNreader — State
 
-Last touched: 2026-04-29
+Last touched: 2026-06-02
 Status: active
 Type: self
 
@@ -14,6 +14,10 @@ DSN parser + analysis web app (FastAPI + deterministic Pydantic parser). Handles
 - Keep contribution reconciliation behavior deterministic through targeted tests.
 
 ## Recent decisions
+- 2026-06-02 — Review round 2: the entreprise SIREN (`S21.G00.06.001`) is declared once but can be followed by several `S21.G00.11` establishments; the parser now carries it onto each via `EstablishmentBlock.enterprise_siren`, and `extractors` reads that field instead of rediscovering from per-establishment records. Fixes multi-establishment cabinet files where site 2+ previously got `cabinet SIREN + client NIC`. `sharedSiren` (header, multi-est global view) tightened: returns a SIREN only when every establishment has a valid 14-digit SIRET sharing the same first 9 digits. Spec PAS section now states the 2€ is a product tolerance, not a derived bound.
+- 2026-06-02 — Review hardening: establishment SIRET is now built only when SIREN (9 digits) and NIC (5 digits) are both valid — else null + warning, killing the impossible 18-digit SIRET (real SIREN in S21.G00.06.001 + missing S21.G00.11). The S11-absent fallback reads the head-office NIC `S21.G00.06.002` instead of mis-reading the SIREN `S21.G00.06.001` as a NIC. Header is scope-aware: establishment scope shows the active site; global+single shows it; global+multi shows "N établissements" + shared SIREN (no misleading single SIRET). PAS tolerance raised to 2€ and explicitly documented as a *product* tolerance (masks sub-2€ single-fraction errors; fraction-aware bound is the follow-up in TODO).
+- 2026-06-02 — Header identity bug (reported by Séverine): the UI top-left showed the émetteur/cabinet (S10.G00.01) instead of the client employer. Two stacked bugs fixed — (a) `app.js renderHeader` now reads `establishments[0].identity` not `d.company`; (b) establishment SIRET was built from the émetteur SIREN — now uses the client SIREN `S21.G00.06.001` (9-digit), falling back to émetteur only when absent. Fixtures encode a simplified model where émetteur SIREN == client SIREN, so the length-gated fallback keeps them green; new `TestEstablishmentIdentityCabinetFiled` covers the cabinet-filed case.
+- 2026-06-02 — PAS arrondi tolerance raised to `abs(delta) < 2.00€` (was 0.50€ half-up via `_rounded_to_unit_ok`). Rationale: DGFIP versement `S21.G00.20.005` is rounded to the euro, PAS individuels `S21.G00.50.009` to the centime (DSN-info fiche 1802), and the rounding cumulates across fractions for a same SIRET, so a few-euro écart is a pure arrondi — 2,00€ confirmed product policy (Séverine). `_rounded_to_unit_ok` is untouched (still used by Ctrl1/Ctrl2). Demo's intentional PAS +9.79 still surfaces.
 - 2026-04-29 — Expanded URSSAF salarié rows reuse the parent CTP grid with no expansion-cell side padding; employee names span `Libellé` + `Déclaré`, and employee amounts right-align in the parent `Individuel` column while info icons stay out of the numeric rail.
 - 2026-04-29 — URSSAF salarié info tooltips elevate their row/ancestors on hover so they render above sticky headers/subheaders without changing the icon positioning.
 - 2026-04-29 — URSSAF tab/card display status is derived from material CTP drill-down issues; a top-level `ok` item turns red when a CTP row has a non-tolerated delta or non-rattachable mapping.

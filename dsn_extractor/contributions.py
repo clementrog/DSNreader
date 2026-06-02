@@ -80,9 +80,9 @@ def _within_tolerance(a: Decimal | None, b: Decimal | None, tol: Decimal) -> boo
 def _rounded_to_unit_ok(a: Decimal | None, b: Decimal | None) -> bool:
     """Return True if abs(a - b) rounds to 0 at the euro level.
 
-    Used by non-URSSAF-per-code reconciliations (PAS status, Ctrl1/Ctrl2).
-    URSSAF per-code rows use ``_urssaf_row_delta_within_unit`` instead, which
-    implements the product-confirmed literal ``abs(delta) < 1.00€`` policy.
+    Used by the URSSAF Ctrl1/Ctrl2 reconciliations. PAS uses its own
+    ``_PAS_EUR_TOL`` tolerance, and URSSAF per-code rows use
+    ``_urssaf_row_delta_within_unit`` (the ``abs(delta) < 1.00€`` policy).
     """
     if a is None or b is None:
         return False
@@ -90,6 +90,20 @@ def _rounded_to_unit_ok(a: Decimal | None, b: Decimal | None) -> bool:
 
 
 _URSSAF_ROW_EUR_TOL = Decimal("1.00")
+
+# PAS écart tolerance — strict ``abs(delta) < 2.00€``.
+#
+# This is a PRODUCT tolerance, not a derived rounding bound. The arrondi origin:
+# the individual PAS (S21.G00.50.009) is rounded to the centime while the DGFIP
+# versement (S21.G00.20.005) is rounded to the whole euro (DSN-info fiche 1802 /
+# CGI art. 1657), so a legitimate écart of ~0,50€ per fraction can cumulate.
+# 2,00€ is the value confirmed with the product owner (Séverine).
+#
+# Trade-off, accepted for V1: a real sub-2€ mismatch on a single fraction is
+# masked, and a genuine rounding écart can exceed 2€ when enough fractions are
+# summed (we compare global sums, not per-fraction). A fraction-aware bound
+# (~0,50€ × nb fractions) would be exact — see TODO.
+_PAS_EUR_TOL = Decimal("2.00")
 
 
 def _urssaf_row_delta_within_unit(a: Decimal | None, b: Decimal | None) -> bool:
@@ -355,7 +369,7 @@ def _compute_pas(
         status = "manquant_agrege"
     elif individual_amount is None:
         status = "manquant_individuel"
-    elif _rounded_to_unit_ok(aggregate_amount, individual_amount):
+    elif abs(aggregate_amount - individual_amount) < _PAS_EUR_TOL:
         status = "ok"
     else:
         status = "ecart"

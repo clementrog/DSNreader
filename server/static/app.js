@@ -309,6 +309,31 @@
     return s.slice(0, 3) + " " + s.slice(3, 6) + " " + s.slice(6, 9) + " " + s.slice(9);
   }
 
+  function formatSiren(v) {
+    if (!v) return NOT_AVAILABLE;
+    var s = v.replace(/\s/g, "");
+    if (s.length !== 9) return v;
+    return s.slice(0, 3) + " " + s.slice(3, 6) + " " + s.slice(6, 9);
+  }
+
+  function sharedSiren(ests) {
+    // Return the common entreprise SIREN only when EVERY establishment
+    // contributes a valid 14-digit SIRET and all share the same first 9 digits.
+    // If any site has a missing/invalid SIRET we cannot prove a shared SIREN.
+    if (!ests.length) return null;
+    var siren = null;
+    for (var i = 0; i < ests.length; i++) {
+      var s = ests[i] && ests[i].identity && ests[i].identity.siret;
+      if (!s) return null;
+      s = s.replace(/\s/g, "");
+      if (!/^\d{14}$/.test(s)) return null;
+      var prefix = s.slice(0, 9);
+      if (siren === null) siren = prefix;
+      else if (prefix !== siren) return null;
+    }
+    return siren;
+  }
+
   function formatMonth(v) {
     if (!v) return NOT_AVAILABLE;
     var parts = v.split("-");
@@ -666,9 +691,34 @@
   }
 
   function renderHeader(d) {
+    // Show the employer (the DSN's subject), not the émetteur (S10.G00.01 /
+    // d.company) which is the cabinet filing the declaration. Pick the identity
+    // by scope so a multi-establishment file is never mislabelled as its first
+    // site in the global view.
+    var ests = d.establishments || [];
     var company = d.company || {};
-    $headerCompany.textContent = company.name || company.siren || "Entreprise";
-    $headerSiret.textContent = formatSiret(company.siret);
+    var idEst = null;
+    if (state.scope === "establishment") {
+      idEst = ests[state.activeEstIdx] && ests[state.activeEstIdx].identity;
+    } else if (ests.length === 1) {
+      idEst = ests[0] && ests[0].identity;
+    }
+
+    if (idEst) {
+      // single establishment, or a specific one selected in establishment scope
+      $headerCompany.textContent =
+        idEst.name || idEst.siret || company.name || company.siren || "Entreprise";
+      $headerSiret.textContent = formatSiret(idEst.siret);
+    } else if (ests.length > 1) {
+      // global scope, multi-establishment: neutral label + shared SIREN only
+      var siren = sharedSiren(ests);
+      $headerCompany.textContent = ests.length + " établissements";
+      $headerSiret.textContent = siren ? formatSiren(siren) : NOT_AVAILABLE;
+    } else {
+      // no establishment data → fall back to émetteur
+      $headerCompany.textContent = company.name || company.siren || "Entreprise";
+      $headerSiret.textContent = formatSiret(company.siret);
+    }
     $headerPeriod.textContent = formatMonth(d.declaration ? d.declaration.month : null);
   }
 

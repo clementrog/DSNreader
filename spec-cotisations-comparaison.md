@@ -589,7 +589,19 @@ Point important :
 
 ### Contrôle à produire
 
-- `aggregate_amount == individual_amount` (tolérance : `0.01`)
+- `aggregate_amount == individual_amount` (tolérance : `abs(delta) < 2.00€`)
+
+**Le `2.00€` est une tolérance _produit_, pas une borne d'arrondi exacte.**
+Origine de l'arrondi : le versement DGFIP (`S21.G00.20.005`) est arrondi à
+l'euro entier le plus proche (0,50 → 1,00) tandis que les PAS individuels
+(`S21.G00.50.009`) sont arrondis au centime, donc un écart de ~0,50€ par fraction
+peut cumuler (réf. DSN-info fiche 1802 / CGI art. 1657). La valeur `2.00€` est
+celle confirmée avec le métier (Séverine).
+
+Compromis assumé en V1 : un vrai écart < 2€ sur une fraction unique est masqué,
+et un écart d'arrondi légitime peut dépasser 2€ si assez de fractions sont
+sommées (on compare les sommes globales, pas fraction par fraction). Une borne
+fraction-aware (~0,50€ × nb fractions) serait exacte — cf. TODO.
 
 ### Référence normative
 
@@ -791,7 +803,7 @@ Si plusieurs caisses de retraite sont présentes dans un même établissement et
 
 | Famille | Contrôle | Tolérance |
 |---------|----------|-----------|
-| PAS | agrégé vs individuel | `0.01` |
+| PAS | agrégé vs individuel | `abs(delta) < 2.00€` (arrondi euro vs centime, cumul multi-fractions) |
 | URSSAF | versement vs bordereau (20 vs 22) | `0.01` |
 | URSSAF | bordereau vs somme CTP (22 vs 23) | `max(0.01, 0.01 × N_lignes_CTP)` |
 | URSSAF | déclaré vs recalculé par CTP | `0.01` |

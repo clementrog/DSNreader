@@ -6,7 +6,8 @@
 - [ ] No active item
 
 ## Next
-- [ ] No active item
+- [ ] Make PAS écart tolerance fraction-aware (~0,50€ × nb fractions) instead of flat 2€ — exact arrondi bound, removes the masked-small-error / cumulative-overflow trade-off (see `_PAS_EUR_TOL` note)
+- [ ] Multi-establishment header: consider a real entreprise raison sociale label instead of "N établissements" if/when we extract one
 
 ## Later
 - [ ] No active item
@@ -15,6 +16,11 @@
 - [ ] None
 
 ## Done
+- [x] 2026-06-02 — Review round 3: extractor entreprise-SIREN resolution is now 3-tier (`enterprise_siren` → S21.G00.06.001 record → émetteur), resilient to manually-built blocks; `sharedSiren` enforces `/^\d{14}$/` not just length
+- [x] 2026-06-02 — Review round 2: parser carries entreprise SIREN (S21.G00.06.001) onto every following S21.G00.11 establishment via `EstablishmentBlock.enterprise_siren`, fixing multi-establishment cabinet files where site 2+ got `cabinet SIREN + client NIC`; `sharedSiren` (app.js) now only returns a SIREN when every site has a valid 14-digit SIRET sharing the same prefix; spec PAS section relabelled as product tolerance with the trade-off
+- [x] 2026-06-02 — Review fixes: SIRET only built when SIREN(9)+NIC(5) valid (no more 18-digit SIRETs); S11-absent fallback uses head-office NIC S21.G00.06.002, never the SIREN; scope-aware header (multi-est global → "N établissements" + shared SIREN); PAS tolerance bumped to 2€ + labelled as product tolerance; fixed _rounded_to_unit_ok docstring drift
+- [x] 2026-06-02 — Header now shows the employer establishment (S21.G00.06.001 client SIREN + S21.G00.11 NIC/enseigne) instead of the émetteur/cabinet (S10.G00.01); fixed establishment SIRET to use client SIREN with émetteur fallback (extractors.py) + app.js renderHeader rewire + tests
+- [x] 2026-06-02 — PAS arrondi: tolerate `abs(delta) < 2.00€` so euro-rounded DGFIP versement vs centime-level individuals (cumul multi-fractions) no longer surfaces a false écart; spec + tests updated
 - [x] 2026-04-29 — Keep URSSAF salarié info tooltips above sticky headers/subheaders without hover flicker
 - [x] 2026-04-29 — Give expanded URSSAF salarié names enough room while right-aligning `Individuel` amounts on the parent CTP rail
 - [x] 2026-04-29 — Fix URSSAF UI status pills so material CTP drill-down gaps turn the family/card status red

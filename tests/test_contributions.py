@@ -580,6 +580,45 @@ class TestPAS:
         assert pas.status == "ecart"
         assert pas.aggregate_vs_individual_delta == Decimal("50.00")
 
+    def test_pas_arrondi_tolerated_under_two_euros(self):
+        # Versement DGFIP rounded to the euro (300) vs centime-level
+        # individuals summing to 301,49 → 1,49€ écart is pure arrondi → ok.
+        est = _est(
+            _r("S21.G00.20.001", "DGFIP", 1),
+            _r("S21.G00.20.005", "300.00", 2),
+            employees=[
+                _emp(
+                    _r("S21.G00.30.001", "12345", 10),
+                    _r("S21.G00.50.009", "201.37", 11),
+                ),
+                _emp(
+                    _r("S21.G00.30.001", "67890", 20),
+                    _r("S21.G00.50.009", "100.12", 21),
+                ),
+            ],
+        )
+        cc = compute_contribution_comparisons(est)
+        pas = [i for i in cc.items if i.family == "pas"][0]
+        assert pas.status == "ok"
+        assert pas.aggregate_vs_individual_delta == Decimal("-1.49")
+
+    def test_pas_ecart_at_or_above_two_euros(self):
+        # 2,00€ écart is at the tolerance boundary → still surfaced.
+        est = _est(
+            _r("S21.G00.20.001", "DGFIP", 1),
+            _r("S21.G00.20.005", "300.00", 2),
+            employees=[
+                _emp(
+                    _r("S21.G00.30.001", "12345", 10),
+                    _r("S21.G00.50.009", "302.00", 11),
+                ),
+            ],
+        )
+        cc = compute_contribution_comparisons(est)
+        pas = [i for i in cc.items if i.family == "pas"][0]
+        assert pas.status == "ecart"
+        assert pas.aggregate_vs_individual_delta == Decimal("-2.00")
+
     def test_pas_multiple_s50_per_employee(self):
         est = _est(
             _r("S21.G00.20.001", "DGFIP", 1),
@@ -2873,7 +2912,12 @@ class TestNewMappingRuntime:
 
 
 class TestRoundingTolerancePAS:
-    """Arrondi à l'entier: PAS aggregate vs individual tolerance is ±0.49€."""
+    """Arrondi PAS: tolérance ``abs(delta) < 2.00€``.
+
+    Le versement DGFIP est arrondi à l'euro, les PAS individuels au centime, et
+    l'arrondi cumule en présence de plusieurs fractions pour un même SIRET, donc
+    un écart de quelques décimales/euros est un pur arrondi et ne doit pas
+    ressortir."""
 
     def _make_pas(self, aggregate: str, individual: str):
         est = _est(
@@ -2899,26 +2943,32 @@ class TestRoundingTolerancePAS:
         assert pas.status == "ok"
         assert pas.aggregate_vs_individual_delta == Decimal("0.35")
 
-    def test_pas_last_accepted_centime_ok(self):
-        """0.49€ is the last accepted centime — rounds to 0."""
-        pas = self._make_pas("300.49", "300.00")
+    def test_pas_one_euro_now_ok(self):
+        """1.00€ is pure arrondi → toléré sous la règle < 2.00€."""
+        pas = self._make_pas("301.00", "300.00")
         assert pas.status == "ok"
-        assert pas.aggregate_vs_individual_delta == Decimal("0.49")
+        assert pas.aggregate_vs_individual_delta == Decimal("1.00")
+
+    def test_pas_last_accepted_centime_ok(self):
+        """1.99€ is the last accepted centime — strictly under 2.00€."""
+        pas = self._make_pas("301.99", "300.00")
+        assert pas.status == "ok"
+        assert pas.aggregate_vs_individual_delta == Decimal("1.99")
 
     def test_pas_at_threshold_ecart(self):
-        """0.50€ rounds to 1 (ROUND_HALF_UP) → écart."""
-        pas = self._make_pas("300.50", "300.00")
+        """2.00€ is at the boundary (strict <) → écart."""
+        pas = self._make_pas("302.00", "300.00")
         assert pas.status == "ecart"
-        assert pas.aggregate_vs_individual_delta == Decimal("0.50")
+        assert pas.aggregate_vs_individual_delta == Decimal("2.00")
 
     def test_pas_above_threshold_ecart(self):
-        pas = self._make_pas("300.51", "300.00")
+        pas = self._make_pas("302.51", "300.00")
         assert pas.status == "ecart"
 
     def test_pas_negative_delta_below_threshold_ok(self):
-        pas = self._make_pas("299.65", "300.00")
+        pas = self._make_pas("298.35", "300.00")
         assert pas.status == "ok"
-        assert pas.aggregate_vs_individual_delta == Decimal("-0.35")
+        assert pas.aggregate_vs_individual_delta == Decimal("-1.65")
 
 
 class TestRoundingToleranceURSSAF:

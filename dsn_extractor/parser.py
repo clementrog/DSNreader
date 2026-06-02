@@ -38,6 +38,11 @@ class EstablishmentBlock:
     records: list[DSNRecord] = field(default_factory=list)
     employee_blocks: list[EmployeeBlock] = field(default_factory=list)
     s54_blocks: list[list[DSNRecord]] = field(default_factory=list)
+    # SIREN of the entreprise (S21.G00.06.001) this establishment belongs to.
+    # A single S21.G00.06 can be followed by several S21.G00.11 establishments;
+    # the SIREN lives only on the entreprise block, so we carry it onto every
+    # following establishment here instead of rediscovering it from records.
+    enterprise_siren: str | None = None
 
 
 @dataclass
@@ -88,6 +93,7 @@ def segment(records: list[DSNRecord], skipped_lines: list[tuple[int, str]]) -> P
     warnings: list[str] = []
 
     current_est_idx: int | None = None
+    current_enterprise_siren: str | None = None
     current_employee: EmployeeBlock | None = None
     current_s54_group: list[DSNRecord] | None = None
 
@@ -135,7 +141,10 @@ def segment(records: list[DSNRecord], skipped_lines: list[tuple[int, str]]) -> P
         if code == ESTABLISHMENT_DECL_CODE:
             _flush_employee()
             _flush_s54_group()
-            establishments.append(EstablishmentBlock(records=[record]))
+            current_enterprise_siren = record.raw_value or None
+            establishments.append(
+                EstablishmentBlock(records=[record], enterprise_siren=current_enterprise_siren)
+            )
             current_est_idx = len(establishments) - 1
             continue
 
@@ -150,8 +159,14 @@ def segment(records: list[DSNRecord], skipped_lines: list[tuple[int, str]]) -> P
                 # Fold into existing establishment started by S21.G00.06
                 establishments[current_est_idx].records.append(record)
             else:
-                # No preceding S21.G00.06, or current establishment already has identity
-                establishments.append(EstablishmentBlock(records=[record]))
+                # New establishment under the same entreprise (one S21.G00.06 can
+                # be followed by several S21.G00.11), or with no preceding S06.
+                # Carry the active entreprise SIREN onto it.
+                establishments.append(
+                    EstablishmentBlock(
+                        records=[record], enterprise_siren=current_enterprise_siren
+                    )
+                )
                 current_est_idx = len(establishments) - 1
             continue
 
