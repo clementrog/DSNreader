@@ -413,6 +413,20 @@ def test_initial_contribution_tab_forces_urssaf():
     )
 
 
+def test_header_title_prefers_name_before_siret():
+    """When S21.G00.11.008 is absent, the header title should still prefer a
+    readable file/company name before falling back to the establishment SIRET.
+
+    The SIRET is already rendered on the second header line; using it as the
+    title duplicates the number and hides the available name.
+    """
+    text = _app_js()
+    assert "idEst.name || company.name || idEst.siret" in text, (
+        "renderHeader must prefer a human-readable name before using the "
+        "establishment SIRET as the title fallback."
+    )
+
+
 def test_top_level_contribution_sections_stay_open_by_default():
     """Top-level organism cards stay open on a fresh render so users keep
     context on each organism while only the inner URSSAF rows are collapsed."""
