@@ -706,8 +706,7 @@
 
     if (idEst) {
       // single establishment, or a specific one selected in establishment scope
-      $headerCompany.textContent =
-        idEst.name || company.name || idEst.siret || company.siren || "Entreprise";
+      $headerCompany.textContent = idEst.name || "Entreprise déclarée";
       $headerSiret.textContent = formatSiret(idEst.siret);
     } else if (ests.length > 1) {
       // global scope, multi-establishment: neutral label + shared SIREN only

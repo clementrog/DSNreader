@@ -198,8 +198,9 @@ The DSN monthly declaration metadata is carried by block `S20.G00.05`, including
 Use company-identification rubrics from `S10.G00.01`. **This is the émetteur
 (sender) of the file — the cabinet/software filing the DSN — NOT necessarily the
 employer.** When a cabinet files on behalf of a client these differ. UI surfaces
-that name the "entreprise/client" must use the establishment identity (§7.3),
-not this block.
+that name the "entreprise/client" must use the establishment/employer identity
+(§7.3). They may use `S10.G00.01.003` as the displayed employer name only when
+the émetteur SIREN matches the employer SIREN.
 
 Mappings:
 
@@ -232,7 +233,11 @@ Mappings:
 * `address` ← `S21.G00.11.003`
 * `postal_code` ← `S21.G00.11.004`
 * `city` ← `S21.G00.11.005`
-* `name` ← `S21.G00.11.008`
+* `name` ← `S10.G00.01.003` only when the émetteur SIREN equals the employer
+  SIREN; otherwise `null`. The DSN employer blocks do not carry a reliable
+  legal-name field in this parser contract.
+* `employee_band_code` ← `S21.G00.11.008` (effectif de fin de période déclarée
+  de l'établissement). **Do not** use this as an establishment name.
 * `ccn_code` ← `S21.G00.11.022`
 
 The spec explicitly defines `S21.G00.11.022` as the **Code convention collective principale**. ([net-entreprises.fr][1])

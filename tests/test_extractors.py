@@ -9,7 +9,7 @@ from decimal import Decimal
 import pytest
 
 from dsn_extractor.extractors import _sum_decimal, extract
-from dsn_extractor.models import DSNOutput, PayrollTracking, SocialAnalysis
+from dsn_extractor.models import Company, DSNOutput, PayrollTracking, SocialAnalysis
 from dsn_extractor.parser import parse
 
 
@@ -38,13 +38,13 @@ MINIMAL_HEADER = (
 )
 
 MINIMAL_ESTABLISHMENT = (
-    "S21.G00.06.001,'00099'\n"
+    "S21.G00.06.001,'999888777'\n"
     "S21.G00.11.001,'00099'\n"
     "S21.G00.11.002,'6201Z'\n"
     "S21.G00.11.003,'1 RUE TEST'\n"
     "S21.G00.11.004,'75000'\n"
     "S21.G00.11.005,'PARIS'\n"
-    "S21.G00.11.008,'TEST PARIS'\n"
+    "S21.G00.11.008,'1'\n"
     "S21.G00.11.022,'1486'\n"
 )
 
@@ -186,7 +186,7 @@ class TestEstablishmentIdentitySingle:
 
     def test_name(self, single_establishment_text: str) -> None:
         out = _extract_fixture(single_establishment_text)
-        assert out.establishments[0].identity.name == "ACME PARIS"
+        assert out.establishments[0].identity.name == "ACME CORP"
 
     def test_naf_code(self, single_establishment_text: str) -> None:
         out = _extract_fixture(single_establishment_text)
@@ -212,7 +212,7 @@ class TestEstablishmentIdentityCabinetFiled:
         "S21.G00.06.001,'123456789'\n"  # client SIREN (9 digits), != émetteur
         "S21.G00.06.002,'11'\n"
         "S21.G00.11.001,'00042'\n"
-        "S21.G00.11.008,'BEN CONSULTING'\n"
+        "S21.G00.11.008,'7'\n"
     )
 
     def test_company_is_emetteur(self) -> None:
@@ -223,7 +223,14 @@ class TestEstablishmentIdentityCabinetFiled:
     def test_identity_uses_client_siren(self) -> None:
         out = _extract_fixture(self.TEXT)
         assert out.establishments[0].identity.siret == "12345678900042"
-        assert out.establishments[0].identity.name == "BEN CONSULTING"
+
+    def test_identity_name_does_not_use_emetteur(self) -> None:
+        out = _extract_fixture(self.TEXT)
+        assert out.establishments[0].identity.name is None
+
+    def test_s11_008_is_not_an_establishment_name(self) -> None:
+        out = _extract_fixture(self.TEXT)
+        assert out.establishments[0].identity.employee_band_code == "7"
 
 
 class TestEstablishmentIdentityCabinetMultiEstablishment:
@@ -237,10 +244,10 @@ class TestEstablishmentIdentityCabinetMultiEstablishment:
         + "S21.G00.06.001,'123456789'\n"  # client SIREN, declared once
         + "S21.G00.06.002,'00001'\n"
         + "S21.G00.11.001,'00042'\n"
-        + "S21.G00.11.008,'CLIENT PARIS'\n"
+        + "S21.G00.11.008,'4'\n"
         + _make_employee(name="A")
         + "S21.G00.11.001,'00043'\n"  # second établissement, same entreprise
-        + "S21.G00.11.008,'CLIENT LYON'\n"
+        + "S21.G00.11.008,'5'\n"
         + _make_employee(name="B")
         + FOOTER
     )
@@ -251,9 +258,11 @@ class TestEstablishmentIdentityCabinetMultiEstablishment:
 
     def test_both_sites_use_client_siren(self) -> None:
         out = _extract_fixture(self.TEXT)
-        sirets = {e.identity.name: e.identity.siret for e in out.establishments}
-        assert sirets["CLIENT PARIS"] == "12345678900042"
-        assert sirets["CLIENT LYON"] == "12345678900043"  # NOT 99988877700043
+        assert [e.identity.siret for e in out.establishments] == [
+            "12345678900042",
+            "12345678900043",  # NOT 99988877700043
+        ]
+        assert [e.identity.name for e in out.establishments] == [None, None]
 
 
 class TestEnterpriseSirenFallback:
@@ -273,7 +282,9 @@ class TestEnterpriseSirenFallback:
             enterprise_siren=None,  # simulate a manually-built block
         )
         warnings: list[str] = []
-        identity = _extract_establishment_identity(block, "999888777", [], warnings)
+        identity = _extract_establishment_identity(
+            block, Company(siren="999888777", name="CABINET"), [], warnings
+        )
         assert identity.siret == "12345678900042"  # client SIREN, not émetteur
 
 
@@ -286,14 +297,14 @@ class TestEstablishmentIdentityMulti:
         out = _extract_fixture(multi_establishment_text)
         est = out.establishments[0]
         assert est.identity.nic == "00011"
-        assert est.identity.name == "ACME PARIS"
+        assert est.identity.name == "ACME CORP"
         assert est.identity.ccn_code == "1486"
 
     def test_second_establishment(self, multi_establishment_text: str) -> None:
         out = _extract_fixture(multi_establishment_text)
         est = out.establishments[1]
         assert est.identity.nic == "00022"
-        assert est.identity.name == "ACME LYON"
+        assert est.identity.name == "ACME CORP"
         assert est.identity.ccn_code == "2120"
 
     def test_multiple_establishments_warning(self, multi_establishment_text: str) -> None:
@@ -335,8 +346,8 @@ class TestEstablishmentIdentityFallback:
     def test_ccn_fallback_from_uniform_employees(self) -> None:
         text = (
             MINIMAL_HEADER
-            + "S21.G00.06.001,'00099'\n"
-            + "S21.G00.06.002,'11'\n"
+            + "S21.G00.06.001,'999888777'\n"
+            + "S21.G00.06.002,'00099'\n"
             + _make_employee(name="A", ccn="2345")
             + _make_employee(name="B", ccn="2345")
             + FOOTER
@@ -347,8 +358,8 @@ class TestEstablishmentIdentityFallback:
     def test_ccn_fallback_conflicting_employees(self) -> None:
         text = (
             MINIMAL_HEADER
-            + "S21.G00.06.001,'00099'\n"
-            + "S21.G00.06.002,'11'\n"
+            + "S21.G00.06.001,'999888777'\n"
+            + "S21.G00.06.002,'00099'\n"
             + _make_employee(name="A", ccn="2345")
             + _make_employee(name="B", ccn="9999")
             + FOOTER
@@ -361,8 +372,8 @@ class TestEstablishmentIdentityFallback:
     def test_ccn_conflict_warning_exactly_once(self) -> None:
         text = (
             MINIMAL_HEADER
-            + "S21.G00.06.001,'00099'\n"
-            + "S21.G00.06.002,'11'\n"
+            + "S21.G00.06.001,'999888777'\n"
+            + "S21.G00.06.002,'00099'\n"
             + _make_employee(name="A", ccn="2345")
             + _make_employee(name="B", ccn="9999")
             + _make_employee(name="C", ccn="1111")
@@ -722,9 +733,9 @@ class TestNullAggregationGlobal:
         # no_s54 fixture: one establishment, all amounts null
         text = (
             MINIMAL_HEADER
-            + "S21.G00.06.001,'00099'\n"
+            + "S21.G00.06.001,'999888777'\n"
             + "S21.G00.11.001,'00099'\n"
-            + "S21.G00.11.008,'EST1'\n"
+            + "S21.G00.11.008,'1'\n"
             + _make_employee(name="A")
             + FOOTER
         )
@@ -738,13 +749,13 @@ class TestNullAggregationGlobal:
         # Two establishments, only one has S54 type 17
         text = (
             MINIMAL_HEADER
-            + "S21.G00.06.001,'00011'\n"
+            + "S21.G00.06.001,'999888777'\n"
             + "S21.G00.11.001,'00011'\n"
-            + "S21.G00.11.008,'EST1'\n"
+            + "S21.G00.11.008,'1'\n"
             + _make_employee(name="A")
-            + "S21.G00.06.001,'00022'\n"
+            + "S21.G00.06.001,'999888777'\n"
             + "S21.G00.11.001,'00022'\n"
-            + "S21.G00.11.008,'EST2'\n"
+            + "S21.G00.11.008,'1'\n"
             + _make_employee(name="B")
             + "S21.G00.54.001,'17'\n"
             + "S21.G00.54.002,'100.00'\n"
@@ -890,13 +901,13 @@ class TestWarningRigor:
         """Each establishment without S54 gets exactly one warning."""
         text = (
             MINIMAL_HEADER
-            + "S21.G00.06.001,'00011'\n"
+            + "S21.G00.06.001,'999888777'\n"
             + "S21.G00.11.001,'00011'\n"
-            + "S21.G00.11.008,'EST1'\n"
+            + "S21.G00.11.008,'1'\n"
             + _make_employee(name="A")
-            + "S21.G00.06.001,'00022'\n"
+            + "S21.G00.06.001,'999888777'\n"
             + "S21.G00.11.001,'00022'\n"
-            + "S21.G00.11.008,'EST2'\n"
+            + "S21.G00.11.008,'1'\n"
             + _make_employee(name="B")
             + FOOTER
         )

@@ -413,17 +413,20 @@ def test_initial_contribution_tab_forces_urssaf():
     )
 
 
-def test_header_title_prefers_name_before_siret():
-    """When S21.G00.11.008 is absent, the header title should still prefer a
-    readable file/company name before falling back to the establishment SIRET.
+def test_header_title_never_falls_back_to_emetteur_name():
+    """In establishment scope, the title must not use d.company.name.
 
-    The SIRET is already rendered on the second header line; using it as the
-    title duplicates the number and hides the available name.
+    S10.G00.01 is the émetteur/cabinet. When it differs from the employer,
+    using it as a fallback mislabels the client DSN.
     """
     text = _app_js()
-    assert "idEst.name || company.name || idEst.siret" in text, (
-        "renderHeader must prefer a human-readable name before using the "
-        "establishment SIRET as the title fallback."
+    assert 'idEst.name || "Entreprise déclarée"' in text, (
+        "renderHeader must use the trusted establishment/employer name, or a "
+        "neutral label when no trusted name exists."
+    )
+    assert "idEst.name || company.name" not in text, (
+        "renderHeader must not fall back to the émetteur name for an employer "
+        "header."
     )
 
 

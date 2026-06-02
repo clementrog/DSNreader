@@ -16,7 +16,8 @@
 - [ ] None
 
 ## Done
-- [x] 2026-06-02 — Header title fallback now prefers a readable name before SIRET (`establishment name → company/file name → SIRET`), fixing DSNs where `S21.G00.11.008` is absent (Capsule SARL showed `81912945300034` as the title)
+- [x] 2026-06-02 — Header employer name fallback hardened: `S10.G00.01.003` (émetteur/cabinet) is used as employer name only when its SIREN matches the employer SIREN; `S21.G00.11.008` corrected as effectif, not name; cabinet-filed DSNs with no trusted employer name show neutral `Entreprise déclarée` + employer SIRET
+- [x] 2026-06-02 — Superseded fallback attempt: header title briefly preferred `company.name` before SIRET for missing establishment names; later corrected because `company.name` is the émetteur in cabinet-filed DSNs
 - [x] 2026-06-02 — Review round 3: extractor entreprise-SIREN resolution is now 3-tier (`enterprise_siren` → S21.G00.06.001 record → émetteur), resilient to manually-built blocks; `sharedSiren` enforces `/^\d{14}$/` not just length
 - [x] 2026-06-02 — Review round 2: parser carries entreprise SIREN (S21.G00.06.001) onto every following S21.G00.11 establishment via `EstablishmentBlock.enterprise_siren`, fixing multi-establishment cabinet files where site 2+ got `cabinet SIREN + client NIC`; `sharedSiren` (app.js) now only returns a SIREN when every site has a valid 14-digit SIRET sharing the same prefix; spec PAS section relabelled as product tolerance with the trade-off
 - [x] 2026-06-02 — Review fixes: SIRET only built when SIREN(9)+NIC(5) valid (no more 18-digit SIRETs); S11-absent fallback uses head-office NIC S21.G00.06.002, never the SIREN; scope-aware header (multi-est global → "N établissements" + shared SIREN); PAS tolerance bumped to 2€ + labelled as product tolerance; fixed _rounded_to_unit_ok docstring drift

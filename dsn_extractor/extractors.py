@@ -136,7 +136,7 @@ def _is_nic(value: str | None) -> bool:
 
 def _extract_establishment_identity(
     est: EstablishmentBlock,
-    company_siren: str | None,
+    company: Company,
     employee_blocks: list[EmployeeBlock],
     warnings: list[str],
 ) -> EstablishmentIdentity:
@@ -148,7 +148,7 @@ def _extract_establishment_identity(
         address = normalize_empty(_find_value(est.records, "S21.G00.11.003") or "")
         postal_code = normalize_empty(_find_value(est.records, "S21.G00.11.004") or "")
         city = normalize_empty(_find_value(est.records, "S21.G00.11.005") or "")
-        name = normalize_empty(_find_value(est.records, "S21.G00.11.008") or "")
+        employee_band_code = normalize_empty(_find_value(est.records, "S21.G00.11.008") or "")
         ccn_code = normalize_empty(_find_value(est.records, "S21.G00.11.022") or "")
     else:
         # No établissement block — fall back to the entreprise head office.
@@ -159,7 +159,7 @@ def _extract_establishment_identity(
         address = None
         postal_code = None
         city = None
-        name = None
+        employee_band_code = None
         ccn_code = None
         warnings.append("Establishment missing S21.G00.11 block, falling back to S21.G00.06 head office")
 
@@ -192,7 +192,9 @@ def _extract_establishment_identity(
         or _find_value(est.records, "S21.G00.06.001")
         or ""
     )
-    siren = entreprise_siren if _is_siren(entreprise_siren) else company_siren
+    company_siren = normalize_empty(company.siren or "")
+    employer_siren = entreprise_siren if _is_siren(entreprise_siren) else None
+    siren = employer_siren or company_siren
     if _is_siren(siren) and _is_nic(nic):
         siret = siren + nic
     else:
@@ -203,6 +205,10 @@ def _extract_establishment_identity(
                 f"(siren={siren!r}, nic={nic!r})"
             )
 
+    # S10.G00.01.003 is the émetteur name. It is a trusted employer name only
+    # when a valid S21.G00.06 employer SIREN proves it is the same entity.
+    name = company.name if employer_siren and employer_siren == company_siren else None
+
     return EstablishmentIdentity(
         nic=nic,
         siret=siret,
@@ -212,6 +218,7 @@ def _extract_establishment_identity(
         address=address,
         postal_code=postal_code,
         city=city,
+        employee_band_code=employee_band_code,
     )
 
 
@@ -583,7 +590,7 @@ def extract(parsed: ParsedDSN, source_file: str = "") -> DSNOutput:
         est_warnings: list[str] = []
 
         identity = _extract_establishment_identity(
-            est_block, company.siren, est_block.employee_blocks, est_warnings
+            est_block, company, est_block.employee_blocks, est_warnings
         )
         counts = _extract_counts(
             est_block.employee_blocks, period_start, period_end, est_warnings
