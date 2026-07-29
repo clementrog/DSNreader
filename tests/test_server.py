@@ -189,6 +189,8 @@ class TestFrontendWiring:
         html = r.text
         assert "Contr&#244;le DSN" in html
         assert "logo-linc.svg" in html
+        assert 'href="https://www.linc.fr/nouveautes"' in html
+        assert "Nouveaut&#233;s" in html
         assert 'id="feedback-btn-results"' in html
         assert 'id="feedback-btn-error"' in html
 

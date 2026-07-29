@@ -1,6 +1,6 @@
 # DSNreader — State
 
-Last touched: 2026-06-02
+Last touched: 2026-07-29
 Status: active
 Type: self
 
@@ -13,6 +13,7 @@ DSN parser + analysis web app (FastAPI + deterministic Pydantic parser). Handles
 - URSSAF comparison UI/status and drill-down details stay demo-ready through targeted tests.
 
 ## Recent decisions
+- 2026-07-29 — The shared DSN shell footer links directly to the canonical Linc product changelog at `https://www.linc.fr/nouveautes`; both the path-mounted linc.fr service and the direct service inherit it from the same HTML.
 - 2026-06-02 — Header employer-name fallback corrected again after `capsule-sarl-avril-2026.dsn`: `S21.G00.11.008` is effectif, not an establishment name, and `S10.G00.01.003` is the émetteur/cabinet unless its SIREN matches the employer SIREN. Cabinet-filed DSNs with no trusted employer name now show neutral `Entreprise déclarée` + employer SIRET, never the cabinet name.
 - 2026-06-02 — Superseded header fallback attempt: when `S21.G00.11.008` was absent, `renderHeader` briefly fell back to `company.name`; wrong for cabinet-filed files because `company` is the émetteur. The second line remained the corrected establishment SIRET.
 - 2026-06-02 — Review round 2: the entreprise SIREN (`S21.G00.06.001`) is declared once but can be followed by several `S21.G00.11` establishments; the parser now carries it onto each via `EstablishmentBlock.enterprise_siren`, and `extractors` reads that field instead of rediscovering from per-establishment records. Fixes multi-establishment cabinet files where site 2+ previously got `cabinet SIREN + client NIC`. `sharedSiren` (header, multi-est global view) tightened: returns a SIREN only when every establishment has a valid 14-digit SIRET sharing the same first 9 digits. Spec PAS section now states the 2€ is a product tolerance, not a derived bound.

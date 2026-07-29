@@ -16,6 +16,7 @@
 - [ ] None
 
 ## Done
+- [x] 2026-07-29 — Add the canonical Linc “Nouveautés” link to the shared footer used by both DSN Reader deployment modes, with server-level regression coverage
 - [x] 2026-06-02 — Header employer name fallback hardened: `S10.G00.01.003` (émetteur/cabinet) is used as employer name only when its SIREN matches the employer SIREN; `S21.G00.11.008` corrected as effectif, not name; cabinet-filed DSNs with no trusted employer name show neutral `Entreprise déclarée` + employer SIRET
 - [x] 2026-06-02 — Superseded fallback attempt: header title briefly preferred `company.name` before SIRET for missing establishment names; later corrected because `company.name` is the émetteur in cabinet-filed DSNs
 - [x] 2026-06-02 — Review round 3: extractor entreprise-SIREN resolution is now 3-tier (`enterprise_siren` → S21.G00.06.001 record → émetteur), resilient to manually-built blocks; `sharedSiren` enforces `/^\d{14}$/` not just length
