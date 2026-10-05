@@ -13,7 +13,7 @@
 - [ ] No active item
 
 ## Blocked
-- [ ] None
+- [ ] 2026-10-05 — Toast « Démo publique de Linc » (draft PR, branch `crog/demo-live-toast`): ne pas fusionner avant que linc-fr/linc-next-site#127 soit déployée, que la démo en direct soit mise en place et que la recette réelle de `docs/runbook-demo-live.md` (linc-next-site) soit cochée. Puis vérifier en production sur www.linc.fr/ressources/controle-dsn/simulateur
 
 ## Done
 - [x] 2026-07-29 — Add the canonical Linc “Nouveautés” link to the shared footer used by both DSN Reader deployment modes, with server-level regression coverage
