@@ -46,10 +46,13 @@
     return s;
   }
 
-  // Is the session already announced still the one to announce?
-  function stillAnnounced(body, announcedId, now) {
+  // After a recheck: the announced session as it now reads, or null to hide.
+  // Same id means same calendar occurrence, even when the organiser moved it
+  // or changed its length ("this occurrence only" keeps the id).
+  function refreshAnnouncement(body, announced, now) {
     var s = firstSession(body);
-    return !!s && s.id === announcedId && Date.parse(s.start) > now;
+    if (!s || s.id !== announced.id || Date.parse(s.start) <= now) return null;
+    return s;
   }
 
   // "Jeudi 8 octobre à 11h" / "Jeudi 5 novembre à 10h30", Paris time.
@@ -140,11 +143,34 @@
     $toast.hidden = true;
   }
 
+  function render(session) {
+    $title.textContent = titleFor(Number(session.durationMin) || 0);
+    $date.textContent = dateLabel(session.start);
+  }
+
+  // Hide exactly when the session starts (longer delays: the recheck covers it).
+  function scheduleStart(session) {
+    window.clearTimeout(startTimer);
+    var untilStart = Date.parse(session.start) - Date.now();
+    if (untilStart <= MAX_TIMER_MS) startTimer = window.setTimeout(stop, untilStart);
+  }
+
   function recheck() {
     if (done || document.visibilityState !== "visible") return;
     readApi().then(
       function (body) {
-        if (!done && !stillAnnounced(body, announced.id, Date.now())) stop();
+        if (done) return;
+        var fresh = refreshAnnouncement(body, announced, Date.now());
+        if (!fresh) {
+          stop();
+          return;
+        }
+        if (fresh.start !== announced.start || fresh.durationMin !== announced.durationMin) {
+          // Moved or resized: update in place, no new view event.
+          announced = fresh;
+          render(fresh);
+          scheduleStart(fresh);
+        }
       },
       function () {
         // Transient failure: keep the current state.
@@ -172,22 +198,21 @@
 
   function announce(session) {
     announced = session;
-    $title.textContent = titleFor(Number(session.durationMin) || 0);
-    $date.textContent = dateLabel(session.start);
+    render(session);
 
+    // The id never changes for an announcement (a different id hides it).
     $close.addEventListener("click", function () {
-      rememberDismissed(session.id);
-      track("demo_live_toast_dismiss", session.id);
+      rememberDismissed(announced.id);
+      track("demo_live_toast_dismiss", announced.id);
       stop();
     });
     $link.addEventListener("click", function () {
-      rememberDismissed(session.id);
-      track("demo_live_toast_click", session.id);
+      rememberDismissed(announced.id);
+      track("demo_live_toast_click", announced.id);
       stop();
     });
 
-    var untilStart = Date.parse(session.start) - Date.now();
-    if (untilStart <= MAX_TIMER_MS) startTimer = window.setTimeout(stop, untilStart);
+    scheduleStart(session);
     recheckTimer = window.setInterval(recheck, RECHECK_MS);
     document.addEventListener("visibilitychange", onVisibility);
     showTimer = window.setTimeout(show, SHOW_DELAY_MS);
