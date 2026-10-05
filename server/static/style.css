@@ -2317,8 +2317,9 @@ body[data-state="error"] #error-screen {
 
 /* ── Démo publique de Linc (toast) ──────────────────────────
    Shown by demo-live-toast.js only when www.linc.fr has an open
-   session. Fixed values on purpose: the same toast ships on every
-   Linc tool (rgdu, cotisations, synthese-ccn, controle-dsn). */
+   session, on screens 768 px and wider. Fixed values on purpose:
+   the same toast ships on every Linc tool (rgdu, cotisations,
+   synthese-ccn, controle-dsn). */
 
 .demo-toast {
   position: fixed;
@@ -2417,12 +2418,11 @@ body[data-state="error"] #error-screen {
   background: #ECEEF1;
 }
 
-@media (max-width: 480px) {
+/* Never on phones: it would cover the tool's main action. The script does
+   not show it below 768 px; this also hides it if the window is narrowed. */
+@media (max-width: 767px) {
   .demo-toast {
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
-    width: auto;
+    display: none;
   }
 }
 

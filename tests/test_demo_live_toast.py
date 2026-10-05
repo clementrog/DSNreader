@@ -45,9 +45,24 @@ def test_toast_script_is_loaded_and_served():
 def test_toast_script_reads_only_linc_and_remembers_the_session():
     js = (STATIC / "demo-live-toast.js").read_text(encoding="utf-8")
     assert '"https://www.linc.fr/api/demo-live"' in js
-    assert 'body.status === "open"' in js
+    assert 'body.status !== "open"' in js
     assert '"linc-demo-live-toast"' in js
     assert "·" not in js
+
+
+def test_toast_uses_a_non_reserved_ga4_parameter():
+    # `session_id` is GA4's own browsing-session id; overwriting it corrupts later events.
+    js = (STATIC / "demo-live-toast.js").read_text(encoding="utf-8")
+    assert "demo_session_id: demoSessionId" in js
+    assert "session_id:" not in js.replace("demo_session_id:", "")
+
+
+def test_toast_never_shows_on_phones():
+    js = (STATIC / "demo-live-toast.js").read_text(encoding="utf-8")
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    assert '"(max-width: 767px)"' in js
+    assert "@media (max-width: 767px) {\n  .demo-toast {\n    display: none;" in css
+    assert "width: auto;" not in css.split("/* ── Démo publique de Linc (toast)")[1]
 
 
 def test_asset_version_follows_the_toast_script():
