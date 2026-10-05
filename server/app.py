@@ -227,9 +227,8 @@ def _send_feedback_email(
 
 
 def _asset_version() -> str:
-    css = STATIC_DIR / "style.css"
-    js = STATIC_DIR / "app.js"
-    mtime = max(css.stat().st_mtime, js.stat().st_mtime)
+    assets = ("style.css", "app.js", "demo-live-toast.js")
+    mtime = max((STATIC_DIR / name).stat().st_mtime for name in assets)
     return str(int(mtime))
 
 

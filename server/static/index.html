@@ -48,6 +48,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{BASE_PATH}}/static/style.css?v={{ASSET_VERSION}}">
   <script src="{{BASE_PATH}}/static/app.js?v={{ASSET_VERSION}}" defer></script>
+  <script src="{{BASE_PATH}}/static/demo-live-toast.js?v={{ASSET_VERSION}}" defer></script>
 </head>
 <body data-state="empty">
 
@@ -506,6 +507,21 @@
       </div>
     </form>
   </dialog>
+
+  <!-- ── Démo publique de Linc (toast) ─────────────────────── -->
+  <!-- Filled and shown by demo-live-toast.js only when www.linc.fr has an open session. -->
+  <aside id="demo-live-toast" class="demo-toast" aria-label="D&#233;mo publique de Linc" hidden>
+    <button id="demo-live-toast-close" class="demo-toast__close" type="button" aria-label="Fermer">
+      <svg width="8" height="8" viewBox="0 0 8 8" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M1 1L7 7M7 1L1 7" stroke="#8A94A0" stroke-width="1.2" stroke-linecap="round"/></svg>
+    </button>
+    <p id="demo-live-toast-title" class="demo-toast__title">D&#233;mo publique de Linc</p>
+    <p class="demo-toast__tagline">Le logiciel de paie des cabinets exigeants</p>
+    <p class="demo-toast__date">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="1.5" y="2.5" width="10" height="9" rx="2" stroke="#8A94A0" stroke-width="1.1"/><path d="M1.5 5.5H11.5M4.5 1V3.5M8.5 1V3.5" stroke="#8A94A0" stroke-width="1.1" stroke-linecap="round"/></svg>
+      <span id="demo-live-toast-date"></span>
+    </p>
+    <a id="demo-live-toast-link" class="demo-toast__cta" href="https://www.linc.fr/demo-live?utm_source=controle-dsn&amp;utm_medium=toast&amp;utm_campaign=demo-live" target="_blank" rel="noopener">M'inscrire</a>
+  </aside>
 
 </body>
 </html>
