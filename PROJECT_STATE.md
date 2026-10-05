@@ -1,6 +1,6 @@
 # DSNreader — State
 
-Last touched: 2026-10-05
+Last touched: 2026-10-05 (toast #3 publié et contrôlé en production)
 Status: active
 Type: self
 
@@ -13,6 +13,7 @@ DSN parser + analysis web app (FastAPI + deterministic Pydantic parser). Handles
 - URSSAF comparison UI/status and drill-down details stay demo-ready through targeted tests.
 
 ## Recent decisions
+- 2026-10-05 — PR #3 `e901804` publiée après autorisation de Clément de corriger le bloqueur de déploiement. `dsn-reader` puis `dsn-path` ont nécessité un redéploiement manuel, auto-deploy non déclenché malgré le merge. Déploiements HEALTHY `5d3526d6-024e-436d-a8ed-4783b6fd682d` et `3e699f1e-b2fa-46ba-b2da-eda360c7ec0d`, commit construit `e9018047b24bbf26f85a2e085c7a4d2cf0d5284c`. Toast public réel, fermeture/reload et absence d'erreurs vérifiés, aucune modification applicative. Preuve de recette invitations/HubSpot/Meet encore suivie dans le record Linc
 - 2026-10-05 — Toast « Démo publique de Linc » (bas droite, fermable) dans `server/static/demo-live-toast.js` : lit `https://www.linc.fr/api/demo-live`, ne s'affiche que pour une session ouverte, pas commencée et non fermée par le visiteur, renvoie vers `www.linc.fr/demo-live`. Même origine via le rewrite linc.fr ; sur l'URL Koyeb directe la lecture est refusée (CORS `*.linc.fr` seulement) et le toast reste masqué, accepté.
 - 2026-10-05 — Après revue : jamais sous 768 px (il couvrait « Choisir un fichier »), relecture de l'API toutes les 60 s et au retour sur l'onglet tant qu'il est en attente ou visible, masqué au début de la session ou si elle est annulée, remplacée ou en pause. Paramètre GA4 `demo_session_id` (pas `session_id`, réservé par GA4).
 - 2026-10-05 — Une session déplacée ou redimensionnée (même id d'occurrence, nouvelle heure ou durée) met le toast à jour sur place à la relecture et recale la minuterie de début, sans nouvel événement `demo_live_toast_view` (`refreshAnnouncement` remplace `stillAnnounced`).

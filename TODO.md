@@ -13,9 +13,11 @@
 - [ ] No active item
 
 ## Blocked
-- [ ] 2026-10-05 — Toast « Démo publique de Linc » (draft PR, branch `crog/demo-live-toast`): ne pas fusionner avant que linc-fr/linc-next-site#127 soit déployée, que la démo en direct soit mise en place et que la recette réelle de `docs/runbook-demo-live.md` (linc-next-site) soit cochée. Puis vérifier en production sur www.linc.fr/ressources/controle-dsn/simulateur
+- [ ] 2026-10-05 — Preuve de recette réelle demo-live non consignée, suivi dans `linc-next-site/docs/task-demo-live-distribution.md`. PR #3 fusionnée et toast vérifié en production, ces contrôles ne prouvent pas la réception des invitations, HubSpot ou l'accès Meet
 
 ## Done
+
+- [x] 2026-10-05 — Toast #3 `e901804` publié et vérifié sur www.linc.fr/ressources/controle-dsn/simulateur. Auto-deploy non déclenché : redéploiements manuels de `dsn-reader` (`5d3526d6`) puis `dsn-path` (`3e699f1e`), HEALTHY et construits depuis le merge exact. Session réelle du 09/10 à 11h, 45 min, fermeture conservée après reload, aucune erreur applicative. Aucun code modifié
 - [x] 2026-07-29 — Add the canonical Linc “Nouveautés” link to the shared footer used by both DSN Reader deployment modes, with server-level regression coverage
 - [x] 2026-06-02 — Header employer name fallback hardened: `S10.G00.01.003` (émetteur/cabinet) is used as employer name only when its SIREN matches the employer SIREN; `S21.G00.11.008` corrected as effectif, not name; cabinet-filed DSNs with no trusted employer name show neutral `Entreprise déclarée` + employer SIRET
 - [x] 2026-06-02 — Superseded fallback attempt: header title briefly preferred `company.name` before SIRET for missing establishment names; later corrected because `company.name` is the émetteur in cabinet-filed DSNs
